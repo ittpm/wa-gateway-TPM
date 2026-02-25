@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 echo ╔════════════════════════════════════════════════════════╗
 echo ║   WA Gateway Setup - Bun Backend Edition               ║
@@ -77,7 +77,7 @@ echo [OK] Dependencies installed
 if not exist ".env" (
     echo   - Creating .env file...
     (
-        echo PORT=8080
+        echo PORT=9090
         echo HOST=0.0.0.0
         echo NODE_ENV=development
         echo.
@@ -123,7 +123,7 @@ echo.
 echo Start Frontend (new terminal):
 echo   cd frontend ^&^& npm run dev
 echo.
-echo Open: http://localhost:3000
+echo Open: http://localhost:9000
 echo.
 choice /C YN /M "Start Bun backend now"
 if errorlevel 2 goto :end

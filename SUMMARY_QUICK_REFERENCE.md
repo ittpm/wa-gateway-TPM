@@ -1,4 +1,4 @@
-# WA Gateway Code Review - SUMMARY
+﻿# WA Gateway Code Review - SUMMARY
 
 ## Blasting & Integration Assessment
 

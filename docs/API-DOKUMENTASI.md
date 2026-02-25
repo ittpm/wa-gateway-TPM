@@ -1,4 +1,4 @@
-# WA Gateway — Dokumentasi API Lengkap
+﻿# WA Gateway — Dokumentasi API Lengkap
 
 > Versi: 1.1.0 | Diperbarui: Februari 2025 | Bahasa: Indonesia
 
@@ -7,7 +7,7 @@
 ## 📍 Base URL
 
 ```
-Development : http://localhost:8080/api/v1
+Development : http://localhost:9090/api/v1
 Production  : https://your-domain.com/api/v1
 Health Check: GET /health
 Docs UI     : GET /docs
@@ -353,7 +353,7 @@ GET /api/v1/analytics/messages?sessionId=xxx&days=7
 ### cURL — Cara Paling Simpel
 ```bash
 # Kirim pesan pakai per-session API key (tanpa sessionId!)
-curl -X POST https://your-server:8080/api/v1/messages/send \
+curl -X POST https://your-server:9090/api/v1/messages/send \
   -H "X-API-Key: wak_8926a5_b2872e786a734007b7dda9ab0a096ae9" \
   -H "Content-Type: application/json" \
   -d '{"to":"6281234567890","type":"text","message":"Halo dari API!"}'
@@ -362,7 +362,7 @@ curl -X POST https://your-server:8080/api/v1/messages/send \
 ### Google Apps Script
 ```javascript
 function kirimPesanWA(nomorTujuan, pesan) {
-  const WA_GATEWAY = 'https://your-server:8080/api/v1';
+  const WA_GATEWAY = 'https://your-server:9090/api/v1';
   const SESSION_API_KEY = 'wak_8926a5_b2872e786a734007b7dda9ab0a096ae9';
 
   const payload = JSON.stringify({
@@ -409,7 +409,7 @@ function kirimTagihanBulk() {
       const pesan = `Halo ${nama},\n\nTagihan Anda: *Rp ${tagihan.toLocaleString('id-ID')}*\n\nMohon segera dibayarkan. Terima kasih 🙏`;
       const hasil = kirimPesanWA(noWA, pesan);
       sheet.getRange(i + 1, 4).setValue(hasil);
-      Utilities.sleep(3000); // Jeda 3 detik antar pesan
+      Utilities.sleep(9000); // Jeda 3 detik antar pesan
     }
   }
 }
@@ -421,7 +421,7 @@ const axios = require('axios');
 
 // Buat client dengan per-session API key
 const wa = axios.create({
-  baseURL: 'http://localhost:8080/api/v1',
+  baseURL: 'http://localhost:9090/api/v1',
   headers: { 'X-API-Key': 'wak_8926a5_b2872e786a734007b7dda9ab0a096ae9' }
 });
 
@@ -491,7 +491,7 @@ class WAGateway {
 }
 
 // Penggunaan
-$wa = new WAGateway('http://localhost:8080', 'wak_8926a5_b2872e786a734007b7dda9ab0a096ae9');
+$wa = new WAGateway('http://localhost:9090', 'wak_8926a5_b2872e786a734007b7dda9ab0a096ae9');
 $result = $wa->kirimPesan('6281234567890', 'Halo dari PHP!');
 echo $result['messageId'] ?? $result['error'];
 ```
@@ -526,7 +526,7 @@ class WAGateway:
         return self.session.get(f'{self.base_url}/queue/stats').json()
 
 # Penggunaan
-wa = WAGateway('http://localhost:8080', 'wak_8926a5_b2872e786a734007b7dda9ab0a096ae9')
+wa = WAGateway('http://localhost:9090', 'wak_8926a5_b2872e786a734007b7dda9ab0a096ae9')
 result = wa.kirim_pesan('6281234567890', 'Halo dari Python!')
 print(f"Message ID: {result.get('messageId')}")
 ```

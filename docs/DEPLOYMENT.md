@@ -1,4 +1,4 @@
-# WA Gateway Deployment Guide
+﻿# WA Gateway Deployment Guide
 
 ## Table of Contents
 1. [Docker Deployment](#docker-deployment)
@@ -24,7 +24,7 @@ services:
     container_name: wa-gateway
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "9090:9090"
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env
@@ -38,9 +38,9 @@ services:
     container_name: wa-gateway-frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "9000:9000"
     environment:
-      - VITE_API_URL=http://localhost:8080/api/v1
+      - VITE_API_URL=http://localhost:9090/api/v1
     networks:
       - wa-gateway-network
 
@@ -81,7 +81,7 @@ WORKDIR /app
 COPY --from=builder /app/wa-gateway .
 COPY --from=builder /app/.env .
 
-EXPOSE 8080
+EXPOSE 9090
 
 CMD ["./wa-gateway"]
 ```
@@ -105,9 +105,9 @@ RUN npm install -g serve
 WORKDIR /app
 COPY --from=builder /app/dist ./dist
 
-EXPOSE 3000
+EXPOSE 9000
 
-CMD ["serve", "-s", "dist", "-l", "3000"]
+CMD ["serve", "-s", "dist", "-l", "9000"]
 ```
 
 Run:
@@ -214,7 +214,7 @@ After=network.target
 Type=simple
 User=wagateway
 WorkingDirectory=/opt/wa-gateway/frontend
-ExecStart=/usr/bin/serve -s dist -l 3000
+ExecStart=/usr/bin/serve -s dist -l 9000
 Restart=on-failure
 RestartSec=10
 
@@ -251,7 +251,7 @@ cd C:\nssm\win64
 ```powershell
 .\nssm.exe install WA-Gateway-Frontend
 # Set Application path: C:\Program Files\nodejs\node.exe
-# Set Arguments: C:\Users\[User]\AppData\Roaming\npm\node_modules\serve\build\main.js -s C:\wa-gateway\frontend\dist -l 3000
+# Set Arguments: C:\Users\[User]\AppData\Roaming\npm\node_modules\serve\build\main.js -s C:\wa-gateway\frontend\dist -l 9000
 
 .\nssm.exe start WA-Gateway-Frontend
 ```
@@ -262,11 +262,11 @@ cd C:\nssm\win64
 
 ```nginx
 upstream wa_gateway_backend {
-    server 127.0.0.1:8080;
+    server 127.0.0.1:9090;
 }
 
 upstream wa_gateway_frontend {
-    server 127.0.0.1:3000;
+    server 127.0.0.1:9000;
 }
 
 server {
@@ -322,18 +322,18 @@ server {
     ProxyPreserveHost On
     
     # Frontend
-    ProxyPass / http://localhost:3000/
-    ProxyPassReverse / http://localhost:3000/
+    ProxyPass / http://localhost:9000/
+    ProxyPassReverse / http://localhost:9000/
     
     # API
-    ProxyPass /api http://localhost:8080/api
-    ProxyPassReverse /api http://localhost:8080/api
+    ProxyPass /api http://localhost:9090/api
+    ProxyPassReverse /api http://localhost:9090/api
     
     # WebSocket
     RewriteEngine on
     RewriteCond %{HTTP:Upgrade} websocket [NC]
     RewriteCond %{HTTP:Connection} upgrade [NC]
-    RewriteRule ^/?(.*) "ws://localhost:8080/$1" [P,L]
+    RewriteRule ^/?(.*) "ws://localhost:9090/$1" [P,L]
 </VirtualHost>
 ```
 
@@ -410,7 +410,7 @@ module.exports = {
       max_memory_restart: '1G',
       env: {
         NODE_ENV: 'production',
-        PORT: 8080,
+        PORT: 9090,
         HOST: '0.0.0.0'
       },
       log_file: '/var/log/wa-gateway/backend.log',
@@ -420,7 +420,7 @@ module.exports = {
     {
       name: 'wa-gateway-frontend',
       script: 'serve',
-      args: '-s dist -l 3000',
+      args: '-s dist -l 9000',
       cwd: '/opt/wa-gateway/frontend',
       instances: 1,
       autorestart: true,

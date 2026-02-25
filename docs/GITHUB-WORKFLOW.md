@@ -1,4 +1,4 @@
-# Panduan Workflow GitHub: Windows ke Linux Server
+﻿# Panduan Workflow GitHub: Windows ke Linux Server
 
 Dokumen ini berisi panduan lengkap untuk sinkronisasi kode dari komputer Anda (Windows) ke server Production (Linux) menggunakan GitHub.
 

@@ -1,4 +1,4 @@
-# Google Apps Script Integration Guide
+﻿# Google Apps Script Integration Guide
 
 ## Complete Setup for WA Gateway
 
@@ -46,7 +46,7 @@ From your wa-gateway backend:
 
 ```bash
 # Get JWT Token
-curl -X POST http://your-server:8080/api/v1/auth/login \
+curl -X POST http://your-server:9090/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"your-password"}'
 
@@ -58,7 +58,7 @@ Get your Session ID:
 
 ```bash
 # List sessions
-curl http://your-server:8080/api/v1/sessions \
+curl http://your-server:9090/api/v1/sessions \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 
 # Response includes:
@@ -67,7 +67,7 @@ curl http://your-server:8080/api/v1/sessions \
 
 **Save these**:
 
-- WA Gateway URL: `http://your-server:8080/api/v1`
+- WA Gateway URL: `http://your-server:9090/api/v1`
 - JWT Token: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
 - Session ID: `session-uuid-here`
 
@@ -101,7 +101,7 @@ curl http://your-server:8080/api/v1/sessions \
 ```javascript
 // Script Name: WAGatewayIntegration.gs
 
-const WA_GATEWAY_URL = "http://your-server:8080/api/v1";
+const WA_GATEWAY_URL = "http://your-server:9090/api/v1";
 const JWT_TOKEN = "YOUR_JWT_TOKEN_HERE";
 const SESSION_ID = "YOUR_SESSION_ID_HERE";
 
@@ -360,7 +360,7 @@ function showHelp() {
 ```javascript
 // Script Name: FormResponseHandler.gs
 
-const WA_GATEWAY_URL = "http://your-server:8080/api/v1";
+const WA_GATEWAY_URL = "http://your-server:9090/api/v1";
 const JWT_TOKEN = "YOUR_JWT_TOKEN_HERE";
 const SESSION_ID = "YOUR_SESSION_ID_HERE";
 
@@ -482,7 +482,7 @@ function formatPhoneNumber(input) {
 ```javascript
 // Script Name: BroadcastScheduler.gs
 
-const WA_GATEWAY_URL = "http://your-server:8080/api/v1";
+const WA_GATEWAY_URL = "http://your-server:9090/api/v1";
 const JWT_TOKEN = "YOUR_JWT_TOKEN_HERE";
 const SESSION_ID = "YOUR_SESSION_ID_HERE";
 
@@ -775,7 +775,7 @@ function loginToWAGateway() {
   const password = response.getResponseText();
 
   const loginResponse = UrlFetchApp.fetch(
-    "http://your-server:8080/api/v1/auth/login",
+    "http://your-server:9090/api/v1/auth/login",
     {
       method: "post",
       contentType: "application/json",
@@ -923,7 +923,7 @@ const token = getToken();
 
 ```javascript
 // Get correct session ID
-curl http://your-server:8080/api/v1/sessions \
+curl http://your-server:9090/api/v1/sessions \
   -H "Authorization: Bearer YOUR_TOKEN"
 // Copy session ID and update in script
 ```

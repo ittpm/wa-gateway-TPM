@@ -1,4 +1,4 @@
-# WA Gateway - WhatsApp Multi-Device Gateway
+﻿# WA Gateway - WhatsApp Multi-Device Gateway
 
 A powerful, anti-block WhatsApp Gateway built with Go/Bun and React. Supports multi-device, message queuing, webhooks, and anti-block protection.
 
@@ -128,7 +128,7 @@ copy .env.example .env
 **Edit `.env` file for Windows:**
 ```env
 SERVER_HOST=localhost
-SERVER_PORT=8080
+SERVER_PORT=9090
 
 DB_TYPE=sqlite
 DB_CONNECTION=./data/wagateway.db
@@ -152,7 +152,7 @@ ANTIBLOCK_ENABLED=true
 # ✓ Database connected
 # ✓ Connection manager initialized
 # ✓ Message queue initialized
-# 🚀 Server starting on http://localhost:8080
+# 🚀 Server starting on http://localhost:9090
 ```
 
 ### Step 4: Frontend Setup
@@ -169,12 +169,12 @@ npm install
 # Run development server
 npm run dev
 
-# Frontend should start at http://localhost:3000
+# Frontend should start at http://localhost:9000
 ```
 
 ### Step 5: Access the Application
 
-1. Open browser: http://localhost:3000
+1. Open browser: http://localhost:9000
 2. You should see the Dashboard
 3. Go to **Sessions** page to add a WhatsApp account
 
@@ -285,7 +285,7 @@ sudo nano /etc/wa-gateway.env
 **Production `.env` configuration:**
 ```env
 SERVER_HOST=0.0.0.0
-SERVER_PORT=8080
+SERVER_PORT=9090
 
 DB_TYPE=sqlite
 DB_CONNECTION=/opt/wa-gateway/backend/data/wagateway.db
@@ -313,7 +313,7 @@ WARMUP_ENABLED=true
 WARMUP_DAYS=7
 
 WEBHOOK_RETRIES=3
-WEBHOOK_TIMEOUT=30000
+WEBHOOK_TIMEOUT=90000
 
 ENV=production
 ```
@@ -372,7 +372,7 @@ After=network.target
 Type=simple
 User=www-data
 WorkingDirectory=/opt/wa-gateway/frontend
-ExecStart=/usr/bin/serve -s dist -l 3000
+ExecStart=/usr/bin/serve -s dist -l 9000
 Restart=on-failure
 RestartSec=5
 
@@ -416,7 +416,7 @@ server {
     server_name your-domain.com;
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:9000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -425,7 +425,7 @@ server {
     }
 
     location /api {
-        proxy_pass http://localhost:8080;
+        proxy_pass http://localhost:9090;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -606,7 +606,7 @@ GET /api/v1/stats/activity
 ### Backend won't start (Windows)
 - Ensure GCC is installed: `gcc --version`
 - Check if data directory exists
-- Check port 8080 is not in use: `netstat -ano | findstr :8080`
+- Check port 9090 is not in use: `netstat -ano | findstr :9090`
 
 ### Frontend won't build
 - Clear npm cache: `npm cache clean --force`
