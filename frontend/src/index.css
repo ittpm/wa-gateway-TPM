@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-whatsapp-600 text-white rounded-lg hover:bg-whatsapp-700 
+           transition-colors duration-200 font-medium flex items-center gap-2;
+  }
+  
+  .btn-secondary {
+    @apply px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg 
+           hover:bg-gray-50 transition-colors duration-200 font-medium flex items-center gap-2;
+  }
+  
+  .btn-danger {
+    @apply px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 
+           transition-colors duration-200 font-medium flex items-center gap-2;
+  }
+  
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-6;
+  }
+  
+  .input-field {
+    @apply w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 
+           focus:ring-whatsapp-500 focus:border-transparent outline-none transition-all;
+  }
+  
+  .status-badge {
+    @apply px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  
+  .status-connected {
+    @apply bg-green-100 text-green-800;
+  }
+  
+  .status-disconnected {
+    @apply bg-red-100 text-red-800;
+  }
+  
+  .status-connecting {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+  
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-100 
+           hover:text-gray-900 rounded-lg transition-all duration-200;
+  }
+  
+  .sidebar-link.active {
+    @apply bg-whatsapp-50 text-whatsapp-700 font-medium;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* QR Code container */
+.qr-container {
+  @apply bg-white p-4 rounded-xl shadow-lg inline-block;
+}
+
+.qr-container canvas,
+.qr-container img {
+  @apply max-w-full h-auto;
+}

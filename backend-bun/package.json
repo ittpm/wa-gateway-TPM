@@ -1,0 +1,45 @@
+{
+  "name": "wa-gateway-bun",
+  "version": "1.0.0",
+  "description": "WA Gateway Backend with Bun + wa-multi-session",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "compression": "^1.8.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "jimp": "^1.6.0",
+    "jsonwebtoken": "^9.0.3",
+    "music-metadata": "^11.12.1",
+    "node-cron": "^3.0.3",
+    "qrcode": "^1.5.3",
+    "qrcode-terminal": "^0.12.0",
+    "wa-multi-session": "^4.2.3",
+    "@whiskeysockets/baileys": "^7.0.0-rc.6",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/compression": "^1.8.1",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/helmet": "^4.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^20.11.0",
+    "@types/node-cron": "^3.0.11",
+    "@types/qrcode": "^1.5.5",
+    "bun-types": "latest"
+  },
+  "module": "src/index.ts",
+  "type": "module"
+}
