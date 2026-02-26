@@ -34,7 +34,7 @@ function StatsCard({ title, value, total, icon: Icon, color, trend, subtitle, lo
       </div>
       <div className="mt-4">
         <h3 className="text-2xl font-bold text-gray-900">
-          {value.toLocaleString()}
+          {(value ?? 0).toLocaleString()}
           {total !== undefined && (
             <span className="text-sm font-normal text-gray-500 ml-1">
               / {total}

@@ -35,8 +35,12 @@ function Queue() {
         api.get('/queue'),
         api.get('/queue/stats'),
       ])
-      setQueue(queueRes.data)
-      setStats(statsRes.data)
+      const q = queueRes.data
+      setQueue(Array.isArray(q) ? q : Array.isArray(q?.data) ? q.data : [])
+      setStats(prev => ({
+        ...prev,
+        ...(statsRes.data && typeof statsRes.data === 'object' ? statsRes.data : {})
+      }))
     } catch (error) {
       console.error('Failed to fetch queue:', error)
     } finally {

@@ -47,10 +47,13 @@ function Webhooks() {
         api.get('/webhooks'),
         api.get('/webhooks/logs'),
       ])
-      setWebhooks(webhooksRes.data)
-      setLogs(logsRes.data)
+      const wh = webhooksRes.data
+      const lg = logsRes.data
+      setWebhooks(Array.isArray(wh) ? wh : Array.isArray(wh?.data) ? wh.data : [])
+      setLogs(Array.isArray(lg) ? lg : Array.isArray(lg?.data) ? lg.data : [])
     } catch (error) {
-      toast.error('Failed to fetch webhooks')
+      setWebhooks([])
+      setLogs([])
     } finally {
       setLoading(false)
     }
@@ -150,11 +153,10 @@ function Webhooks() {
                 {eventOptions.map((event) => (
                   <label
                     key={event.value}
-                    className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      newWebhook.events.includes(event.value)
+                    className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${newWebhook.events.includes(event.value)
                         ? 'border-whatsapp-500 bg-whatsapp-50'
                         : 'border-gray-200 hover:border-gray-300'
-                    }`}
+                      }`}
                   >
                     <input
                       type="checkbox"

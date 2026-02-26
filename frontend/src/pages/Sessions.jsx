@@ -49,9 +49,10 @@ function Sessions() {
   const fetchSessions = async () => {
     try {
       const response = await api.get('/sessions')
-      setSessions(response.data)
+      const rawData = response.data
+      setSessions(Array.isArray(rawData) ? rawData : Array.isArray(rawData?.data) ? rawData.data : [])
     } catch (error) {
-      toast.error('Gagal mengambil data session')
+      setSessions([])
     } finally {
       setLoading(false)
     }
