@@ -47,13 +47,13 @@ export class ConnectionManager {
   private restoreInProgress: Map<string, boolean> = new Map();
   private restoreQueue: Map<string, Promise<void>> = new Map();
   private readonly RESTORE_DEBOUNCE = 5000; // 5 detik debounce antar restore
-  
+
   // Conflict/440 error tracking untuk exponential backoff
   private conflictCount: Map<string, number> = new Map();
   private lastConflictTime: Map<string, number> = new Map();
   private readonly CONFLICT_BACKOFF_BASE = 30000; // 30 detik base delay
   private readonly CONFLICT_MAX_DELAY = 300000; // 5 menit max delay
-  
+
   // Track event listeners untuk mencegah multiple listeners saat reconnect
   private listenersSetup: Map<string, boolean> = new Map();
 
@@ -72,7 +72,7 @@ export class ConnectionManager {
       },
       onConnected: async (sessionId: string) => {
         logger.info(`[Session ${sessionId}] connected`);
-        
+
         // Reset conflict count on successful connection
         const conflictCount = this.conflictCount.get(sessionId) || 0;
         if (conflictCount > 0) {
@@ -80,7 +80,7 @@ export class ConnectionManager {
           this.conflictCount.set(sessionId, 0);
           this.lastConflictTime.delete(sessionId);
         }
-        
+
         const session = await this.whatsapp.getSessionById(sessionId);
         const user = session?.sock?.user;
 
@@ -93,7 +93,7 @@ export class ConnectionManager {
           // Mencegah multiple listeners saat reconnect
           if (!this.listenersSetup.get(sessionId)) {
             logger.info(`[Session ${sessionId}] Setting up event listeners...`);
-            
+
             // Setup event listeners untuk contacts dan chats sync
             this.setupContactSync(sessionId, session.sock);
 
@@ -115,7 +115,7 @@ export class ConnectionManager {
                 }
               }
             });
-            
+
             this.listenersSetup.set(sessionId, true);
             logger.info(`[Session ${sessionId}] Event listeners setup complete`);
           } else {
@@ -205,23 +205,23 @@ export class ConnectionManager {
     // Load existing sessions from database dan auto-reconnect
     const sessions = this.db.getAllSessions();
     logger.info(`[ConnectionManager] Found ${sessions.length} sessions in database`);
-    
+
     // Restore sessions dengan delay antar session untuk mencegah rate limiting
     for (let i = 0; i < sessions.length; i++) {
       const session = sessions[i];
-      
+
       // Mark as disconnected first since we need to reconnect
       this.db.updateSession({ id: session.id, status: 'disconnected' });
-      
+
       logger.info(`[ConnectionManager] Auto-reconnecting session: ${session.id} (${session.name})`);
-      
+
       try {
         // Try to restore session dengan locking
         await this.restoreSessionWithLock(session.id, session.name);
       } catch (error) {
         logger.error(`[ConnectionManager] Failed to restore session ${session.id}:`, error);
       }
-      
+
       // Delay antar session restore untuk mencegah rate limiting (2 detik antar session)
       if (i < sessions.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -257,9 +257,9 @@ export class ConnectionManager {
     const lastConflict = this.lastConflictTime.get(sessionId) || 0;
     const conflictCount = this.conflictCount.get(sessionId) || 0;
     const timeSinceConflict = Date.now() - lastConflict;
-    
+
     if (conflictCount > 0 && timeSinceConflict < 300000) {
-      logger.debug(`[Session ${sessionId}] Health check skipped - recent conflict (${Math.round(timeSinceConflict/1000)}s ago)`);
+      logger.debug(`[Session ${sessionId}] Health check skipped - recent conflict (${Math.round(timeSinceConflict / 1000)}s ago)`);
       return;
     }
 
@@ -311,7 +311,7 @@ export class ConnectionManager {
           logger.info(`[Session ${sessionId}] Health check recovered`);
           (conn as any).failCount = 0;
         }
-        
+
         // Reset conflict count jika sudah lama tidak ada conflict
         if (conflictCount > 0 && timeSinceConflict > 600000) { // 10 menit
           logger.info(`[Session ${sessionId}] Conflict count reset after 10 minutes stability`);
@@ -360,7 +360,7 @@ export class ConnectionManager {
     // Create restore promise
     const restorePromise = this.restoreSessionInternal(sessionId, sessionName);
     this.restoreQueue.set(sessionId, restorePromise);
-    
+
     try {
       await restorePromise;
     } finally {
@@ -374,19 +374,19 @@ export class ConnectionManager {
    */
   private async restoreSessionInternal(sessionId: string, sessionName: string): Promise<void> {
     this.restoreInProgress.set(sessionId, true);
-    
+
     try {
       logger.info(`[Session ${sessionId}] Restoring session...`);
-      
+
       // Update last restore time
       const conn = this.sessions.get(sessionId);
       if (conn) {
         (conn as any).lastRestoreTime = Date.now();
       }
-      
+
       // Check if session already exists in wa-multi-session
       const existingSession = await this.whatsapp.getSessionById(sessionId);
-      
+
       if (existingSession) {
         // Session exists, just need to reconnect
         logger.info(`[Session ${sessionId}] Session exists in wa-multi-session, reconnecting...`);
@@ -502,7 +502,7 @@ export class ConnectionManager {
     // Check if session already exists in database
     const existingSession = this.db.getSession(id);
     let session;
-    
+
     if (existingSession) {
       // Update existing session
       session = existingSession;
@@ -608,7 +608,7 @@ export class ConnectionManager {
       await this.whatsapp.deleteSession(id);
       this.sessions.delete(id);
     }
-    
+
     // Clear all tracking for this session
     this.listenersSetup.delete(id);
     this.conflictCount.delete(id);
@@ -616,7 +616,7 @@ export class ConnectionManager {
     this.reconnectInProgress.delete(id);
     this.restoreInProgress.delete(id);
     this.restoreQueue.delete(id);
-    
+
     this.db.deleteSession(id);
   }
 
@@ -628,9 +628,9 @@ export class ConnectionManager {
       logger.info(`[Session ${id}] Reconnect already in progress, skipping...`);
       return;
     }
-    
+
     this.reconnectInProgress.set(id, true);
-    
+
     try {
       logger.info(`[Session ${id}] Reconnecting...`);
 
@@ -675,14 +675,26 @@ export class ConnectionManager {
       try {
         logger.info(`[Session ${sessionId}] Received ${contacts.length} contacts from sync`);
 
+        const contactsToSave = [];
         for (const contact of contacts) {
           if (contact.id && !contact.id.includes('status@broadcast')) {
-            this.saveContact(
+            const jid = contact.id;
+            const phone = jid.split('@')[0];
+            const name = contact.name || contact.pushname || contact.verifiedName || contact.notify || phone;
+
+            contactsToSave.push({
+              id: crypto.randomUUID(),
               sessionId,
-              contact.id,
-              contact.name || contact.pushname || contact.verifiedName || contact.notify
-            );
+              name,
+              phone,
+              jid,
+              isGroup: jid.endsWith('@g.us')
+            });
           }
+        }
+
+        if (contactsToSave.length > 0) {
+          this.db.bulkUpsertContacts(contactsToSave);
         }
 
         const totalCount = this.db.getContactsCount(sessionId);
@@ -700,14 +712,26 @@ export class ConnectionManager {
       try {
         logger.debug(`[Session ${sessionId}] Received ${chats.length} chats from sync`);
 
+        const contactsToSave = [];
         for (const chat of chats) {
           if (chat.id && !chat.id.includes('status@broadcast')) {
-            this.saveContact(
+            const jid = chat.id;
+            const phone = jid.split('@')[0];
+            const name = chat.name || chat.pushName || chat.verifiedName || phone;
+
+            contactsToSave.push({
+              id: crypto.randomUUID(),
               sessionId,
-              chat.id,
-              chat.name || chat.pushName || chat.verifiedName
-            );
+              name,
+              phone,
+              jid,
+              isGroup: jid.endsWith('@g.us')
+            });
           }
+        }
+
+        if (contactsToSave.length > 0) {
+          this.db.bulkUpsertContacts(contactsToSave);
         }
       } catch (err) {
         logger.error(`[Session ${sessionId}] Error in chats.upsert:`, err);
@@ -748,15 +772,24 @@ export class ConnectionManager {
     // Listen ke messaging-history.set - event penting untuk history sync
     sock.ev?.on('messaging-history.set', ({ contacts, chats }: any) => {
       try {
+        const contactsToSave = [];
+
         if (contacts) {
           logger.info(`[Session ${sessionId}] History sync: ${contacts.length} contacts`);
           for (const contact of contacts) {
             if (contact.id && !contact.id.includes('status@broadcast')) {
-              this.saveContact(
+              const jid = contact.id;
+              const phone = jid.split('@')[0];
+              const name = contact.name || contact.pushname || contact.verifiedName || contact.notify || phone;
+
+              contactsToSave.push({
+                id: crypto.randomUUID(),
                 sessionId,
-                contact.id,
-                contact.name || contact.pushname || contact.verifiedName || contact.notify
-              );
+                name,
+                phone,
+                jid,
+                isGroup: jid.endsWith('@g.us')
+              });
             }
           }
         }
@@ -765,13 +798,27 @@ export class ConnectionManager {
           logger.info(`[Session ${sessionId}] History sync: ${chats.length} chats`);
           for (const chat of chats) {
             if (chat.id && !chat.id.includes('status@broadcast')) {
-              this.saveContact(
-                sessionId,
-                chat.id,
-                chat.name || chat.pushName || chat.verifiedName
-              );
+              const jid = chat.id;
+              const phone = jid.split('@')[0];
+              const name = chat.name || chat.pushName || chat.verifiedName || phone;
+
+              // Only add if not already added from contacts
+              if (!contactsToSave.some(c => c.jid === jid)) {
+                contactsToSave.push({
+                  id: crypto.randomUUID(),
+                  sessionId,
+                  name,
+                  phone,
+                  jid,
+                  isGroup: jid.endsWith('@g.us')
+                });
+              }
             }
           }
+        }
+
+        if (contactsToSave.length > 0) {
+          this.db.bulkUpsertContacts(contactsToSave);
         }
 
         const totalCount = this.db.getContactsCount(sessionId);
@@ -809,11 +856,11 @@ export class ConnectionManager {
           logger.warn(`[Session ${sessionId}] Logged out from phone. Session terminated.`);
 
           if (conn) {
-            conn.status = 'logged_out';
-            conn.session.status = 'logged_out';
-            this.db.updateSession({ id: sessionId, status: 'logged_out' });
+            (conn as any).status = 'logged_out';
+            (conn as any).session.status = 'logged_out';
+            this.db.updateSession({ id: sessionId, status: 'logged_out' as any });
           }
-          
+
           // Clear listeners setup flag
           this.listenersSetup.delete(sessionId);
           return;
@@ -847,28 +894,28 @@ export class ConnectionManager {
           const now = Date.now();
           const lastConflict = this.lastConflictTime.get(sessionId) || 0;
           let count = this.conflictCount.get(sessionId) || 0;
-          
+
           // Reset count if last conflict was > 5 minutes ago
           if (now - lastConflict > 300000) {
             count = 0;
           }
-          
+
           count++;
           this.conflictCount.set(sessionId, count);
           this.lastConflictTime.set(sessionId, now);
-          
+
           // Calculate backoff: 30s, 60s, 120s, 240s, max 300s (5min)
           const delay = Math.min(
             this.CONFLICT_BACKOFF_BASE * Math.pow(2, count - 1),
             this.CONFLICT_MAX_DELAY
           );
-          
+
           // Add jitter (±20%) to prevent thundering herd
           const jitter = delay * 0.2 * (Math.random() * 2 - 1);
           const finalDelay = Math.floor(delay + jitter);
-          
-          logger.warn(`[Session ${sessionId}] Conflict detected (attempt ${count}). Waiting ${Math.round(finalDelay/1000)}s before reconnect...`);
-          
+
+          logger.warn(`[Session ${sessionId}] Conflict detected (attempt ${count}). Waiting ${Math.round(finalDelay / 1000)}s before reconnect...`);
+
           // Clear the session from wa-multi-session to force fresh connection
           setTimeout(async () => {
             try {
@@ -1172,33 +1219,33 @@ export class ConnectionManager {
   ): Promise<any> {
     let lastError: any;
     const SEND_TIMEOUT = 30000; // 30 detik timeout untuk send message
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const session = await this.whatsapp.getSessionById(sessionId);
         if (!session?.sock) {
           throw new Error('Session not connected');
         }
-        
+
         // Wrap sendMessage dengan timeout untuk mencegah hanging
         const sendWithTimeout = Promise.race([
           session.sock.sendMessage(jid, content),
-          new Promise((_, reject) => 
+          new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Send message timeout after 30s')), SEND_TIMEOUT)
           )
         ]);
-        
+
         return await sendWithTimeout;
       } catch (error: any) {
         lastError = error;
-        
+
         // Check if it's a timeout error
         if (error.message?.includes('timeout')) {
           logger.error(`[Connection] Send message timeout for session ${sessionId} (attempt ${attempt + 1})`);
         }
-        
+
         // Check if it's a retryable error
-        const isRetryable = 
+        const isRetryable =
           error.message?.includes('Connection Closed') ||
           error.message?.includes('connection closed') ||
           error.message?.includes('Stream Errored') ||
@@ -1206,16 +1253,16 @@ export class ConnectionManager {
           error.message?.includes('timeout') ||
           error.output?.statusCode === 428 ||
           error.output?.statusCode === 440;
-        
+
         if (!isRetryable || attempt === maxRetries) {
           throw error;
         }
-        
+
         // Wait before retry with exponential backoff
         const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
         logger.warn(`[Connection] Message send failed (attempt ${attempt + 1}), retrying in ${delay}ms:`, error.message);
         await new Promise(resolve => setTimeout(resolve, delay));
-        
+
         // Try to reconnect session before final retry
         if (attempt === maxRetries - 1) {
           logger.info(`[Connection] Attempting session reconnect before final retry...`);
@@ -1227,7 +1274,7 @@ export class ConnectionManager {
         }
       }
     }
-    
+
     throw lastError;
   }
 
@@ -1252,31 +1299,31 @@ export class ConnectionManager {
       if (options?.media) {
         const mediaType = options.type || 'image';
         const mediaContent: any = {};
-        
+
         // Check if media is local file path or URL
-        const isLocalFile = !options.media.startsWith('http://') && 
-                           !options.media.startsWith('https://') && 
-                           !options.media.startsWith('data:');
-        
+        const isLocalFile = !options.media.startsWith('http://') &&
+          !options.media.startsWith('https://') &&
+          !options.media.startsWith('data:');
+
         if (isLocalFile) {
           // Read local file with timeout protection
           logger.info(`[Connection] Reading local file: ${options.media}`);
-          
+
           // Check if file exists first
           if (!existsSync(options.media)) {
             throw new Error(`Media file not found: ${options.media}`);
           }
-          
+
           // Read file with 10 second timeout
           const fileBuffer = await Promise.race([
             readFile(options.media),
-            new Promise<never>((_, reject) => 
+            new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error('File read timeout after 10s')), 10000)
             )
           ]);
-          
+
           logger.info(`[Connection] File read complete: ${options.media} (${fileBuffer.length} bytes)`);
-          
+
           if (mediaType === 'image') {
             mediaContent.image = fileBuffer;
           } else if (mediaType === 'video') {
@@ -1330,15 +1377,15 @@ export class ConnectionManager {
 
     } catch (error: any) {
       // Handle specific errors
-      if (error.message?.includes('Connection Closed') || 
-          error.message?.includes('connection closed') ||
-          error.message?.includes('Stream Errored') ||
-          error.output?.statusCode === 428 ||
-          error.output?.statusCode === 440) {
+      if (error.message?.includes('Connection Closed') ||
+        error.message?.includes('connection closed') ||
+        error.message?.includes('Stream Errored') ||
+        error.output?.statusCode === 428 ||
+        error.output?.statusCode === 440) {
         logger.warn(`[Connection] Connection closed while sending message to ${to}. Session will auto-reconnect.`);
         throw new Error('WhatsApp connection closed. Please wait for auto-reconnect or reconnect manually.');
       }
-      
+
       logger.error(`[Connection] Failed to send message:`, error.message);
       throw error;
     }
@@ -1372,7 +1419,7 @@ export class ConnectionManager {
     if (!conn || conn.status !== 'connected') {
       return false;
     }
-    
+
     // Additional check: verify socket actually has user data
     // This prevents false positives when connection drops but status not updated yet
     this.whatsapp.getSessionById(sessionId).then(session => {
@@ -1380,8 +1427,8 @@ export class ConnectionManager {
       if (!hasUser && conn.status === 'connected') {
         logger.warn(`[Connection] Session ${sessionId} has no user data but status is connected`);
       }
-    }).catch(() => {});
-    
+    }).catch(() => { });
+
     return true;
   }
 
@@ -1426,7 +1473,7 @@ export class ConnectionManager {
 
   async stop(): Promise<void> {
     logger.info('[ConnectionManager] Stopping...');
-    
+
     // Clear health check interval
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
@@ -1437,17 +1484,17 @@ export class ConnectionManager {
     this.reconnectInProgress.clear();
     this.restoreInProgress.clear();
     this.restoreQueue.clear();
-    
+
     // Clear conflict tracking
     this.conflictCount.clear();
     this.lastConflictTime.clear();
-    
+
     // Clear listeners tracking
     this.listenersSetup.clear();
 
     // wa-multi-session handles cleanup automatically
     this.sessions.clear();
-    
+
     logger.info('[ConnectionManager] Stopped');
   }
 }

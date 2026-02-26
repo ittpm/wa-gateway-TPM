@@ -352,7 +352,6 @@ export class Database {
     this.db.run('DELETE FROM sessions WHERE id = ?', [id]);
   }
 
-  // Contact methods
   createContact(contact: { id: string; sessionId: string; name?: string; phone: string; jid: string; profilePicUrl?: string; isGroup?: boolean }): void {
     if (!this.db) return;
 
@@ -372,6 +371,38 @@ export class Database {
       now,
       now
     ]);
+  }
+
+  // Batch insert contacts for high performance sync
+  bulkUpsertContacts(contacts: Array<{ id: string; sessionId: string; name?: string; phone: string; jid: string; profilePicUrl?: string; isGroup?: boolean }>): void {
+    if (!this.db || contacts.length === 0) return;
+
+    const now = new Date().toISOString();
+
+    const insertStmt = this.db.prepare(`
+      INSERT OR REPLACE INTO contacts (id, session_id, name, phone, jid, profile_pic_url, is_group, is_synced, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `);
+
+    try {
+      this.db.transaction(() => {
+        for (const contact of contacts) {
+          insertStmt.run([
+            contact.id,
+            contact.sessionId,
+            contact.name ? contact.name : null,
+            contact.phone,
+            contact.jid,
+            contact.profilePicUrl ? contact.profilePicUrl : null,
+            contact.isGroup ? 1 : 0,
+            now,
+            now
+          ] as any);
+        }
+      })();
+    } catch (error) {
+      logger.error('Error during bulkUpsertContacts:', error);
+    }
   }
 
   getContacts(sessionId: string, search?: string): any[] {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import toast from 'react-hot-toast'
 import {
   Send,
@@ -10,7 +10,9 @@ import {
   MessageSquare,
   Users,
   Sparkles,
-  Smartphone
+  Smartphone,
+  Search,
+  X
 } from 'lucide-react'
 import { api } from '../services/api'
 import FileUpload from '../components/FileUpload'
@@ -37,6 +39,26 @@ function SendMessage() {
   })
   const [selectedFile, setSelectedFile] = useState(null)
 
+  // Contact picker states
+  const [contactSearch, setContactSearch] = useState('')
+  const [contactResults, setContactResults] = useState([])
+  const [showContactDropdown, setShowContactDropdown] = useState(false)
+  const [contactLoading, setContactLoading] = useState(false)
+  const [selectedContactName, setSelectedContactName] = useState('')
+  const contactDropdownRef = useRef(null)
+  const debounceRef = useRef(null)
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (contactDropdownRef.current && !contactDropdownRef.current.contains(e.target)) {
+        setShowContactDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   // Fetch sessions on mount
   useEffect(() => {
     fetchSessions()
@@ -60,6 +82,56 @@ function SendMessage() {
     } finally {
       setSessionsLoading(false)
     }
+  }
+
+  // Fetch contact suggestions with debounce 300ms
+  const handleContactSearch = useCallback((value) => {
+    setContactSearch(value)
+    setFormData(prev => ({ ...prev, to: value }))
+    setSelectedContactName('')
+
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+
+    if (!value.trim() || value.length < 2) {
+      setContactResults([])
+      setShowContactDropdown(false)
+      return
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      if (!formData.sessionId) return
+      setContactLoading(true)
+      try {
+        const res = await api.get(`/sessions/${formData.sessionId}/contacts`, {
+          params: { search: value }
+        })
+        const contacts = (res.data?.contacts || []).filter(c => !c.isGroup).slice(0, 10)
+        setContactResults(contacts)
+        setShowContactDropdown(contacts.length > 0)
+      } catch {
+        setContactResults([])
+        setShowContactDropdown(false)
+      } finally {
+        setContactLoading(false)
+      }
+    }, 300)
+  }, [formData.sessionId])
+
+  const handleSelectContact = (contact) => {
+    const phone = contact.phone
+    setFormData(prev => ({ ...prev, to: phone }))
+    setContactSearch(phone)
+    setSelectedContactName(contact.name || phone)
+    setShowContactDropdown(false)
+    setContactResults([])
+  }
+
+  const handleClearContact = () => {
+    setFormData(prev => ({ ...prev, to: '' }))
+    setContactSearch('')
+    setSelectedContactName('')
+    setContactResults([])
+    setShowContactDropdown(false)
   }
 
   const tabs = [
@@ -473,18 +545,87 @@ function SendMessage() {
             )}
           </div>
 
-          {/* Common Fields */}
+          {/* Common Fields - Contact Picker */}
           {activeTab !== 'bulk' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">To</label>
-              <input
-                type="tel"
-                value={formData.to}
-                onChange={(e) => setFormData({ ...formData, to: e.target.value })}
-                placeholder="6281234567890 (without + or spaces)"
-                className="input-field"
-                required
-              />
+            <div ref={contactDropdownRef} className="relative">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                <User className="w-4 h-4 inline mr-1" />
+                To (Penerima)
+              </label>
+
+              {/* Selected contact badge */}
+              {selectedContactName && (
+                <div className="mb-2 flex items-center gap-2">
+                  <div className="flex items-center gap-2 bg-whatsapp-50 border border-whatsapp-200 text-whatsapp-800 text-sm px-3 py-1.5 rounded-full">
+                    <div className="w-5 h-5 rounded-full bg-whatsapp-500 text-white text-xs flex items-center justify-center font-bold">
+                      {selectedContactName.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="font-medium">{selectedContactName}</span>
+                    <span className="text-whatsapp-600 font-mono text-xs">· {formData.to}</span>
+                  </div>
+                  <button type="button" onClick={handleClearContact} className="text-gray-400 hover:text-gray-600 transition-colors">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Input with search icon */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={contactSearch}
+                  onChange={(e) => handleContactSearch(e.target.value)}
+                  onFocus={() => contactResults.length > 0 && setShowContactDropdown(true)}
+                  placeholder={formData.sessionId ? "Cari nama/nomor kontak atau ketik nomor manual..." : "Pilih session dulu, lalu cari kontak..."}
+                  className="input-field pl-9 pr-8"
+                  required
+                  disabled={!formData.sessionId}
+                />
+                {contactLoading && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-whatsapp-500/30 border-t-whatsapp-500 rounded-full animate-spin" />
+                )}
+              </div>
+
+              {/* Dropdown contact results */}
+              {showContactDropdown && contactResults.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+                  <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-medium">
+                    {contactResults.length} kontak ditemukan — klik untuk pilih
+                  </div>
+                  <ul className="max-h-60 overflow-y-auto divide-y divide-gray-100">
+                    {contactResults.map((contact) => (
+                      <li
+                        key={contact.id}
+                        onClick={() => handleSelectContact(contact)}
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-whatsapp-50 cursor-pointer transition-colors group"
+                      >
+                        {/* Avatar */}
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-whatsapp-400 to-whatsapp-600 text-white flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-sm">
+                          {(contact.name || contact.phone).charAt(0).toUpperCase()}
+                        </div>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">
+                            {contact.name || 'Tanpa Nama'}
+                          </p>
+                          <p className="text-xs text-gray-500 font-mono truncate">{contact.phone}</p>
+                        </div>
+                        {/* Arrow indicator */}
+                        <span className="text-whatsapp-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs font-medium">Pilih →</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Hint when no session selected */}
+              {!formData.sessionId && (
+                <p className="text-xs text-amber-600 mt-1">⚠️ Pilih WhatsApp Session terlebih dahulu untuk menggunakan pencarian kontak.</p>
+              )}
+              {formData.sessionId && !selectedContactName && (
+                <p className="text-xs text-gray-400 mt-1">💡 Ketik minimal 2 karakter untuk cari dari kontak tersimpan, atau langsung masukkan nomor (contoh: 6281234567890)</p>
+              )}
             </div>
           )}
 
