@@ -15,43 +15,44 @@ import Templates from './pages/Templates'
 import History from './pages/History'
 import Login from './pages/Login'
 import { api } from './services/api'
+import { getCurrentUser } from './utils/auth'
 
-// Protected Route wrapper
+// Protected Route wrapper - cek apakah user sudah login
 function ProtectedRoute({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(null)
-  
+
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('token')
-      if (!token) {
-        setIsAuthenticated(false)
-        return
-      }
+      if (!token) { setIsAuthenticated(false); return }
       try {
         await api.get('/auth/me')
         setIsAuthenticated(true)
-      } catch (error) {
+      } catch {
         localStorage.removeItem('token')
         setIsAuthenticated(false)
       }
     }
     checkAuth()
   }, [])
-  
+
   if (isAuthenticated === null) {
-    // Loading state
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-whatsapp-600"></div>
       </div>
     )
   }
-  
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
-  }
-  
+  if (!isAuthenticated) return <Navigate to="/login" replace />
   return <Layout>{children}</Layout>
+}
+
+// Superadmin-only Route wrapper - hanya superadmin yang bisa mengakses
+function SuperadminRoute({ children }) {
+  const user = getCurrentUser()
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role !== 'superadmin') return <Navigate to="/" replace />
+  return children
 }
 
 function App() {
@@ -68,7 +69,16 @@ function App() {
       <Route path="/queue" element={<ProtectedRoute><Queue /></ProtectedRoute>} />
       <Route path="/webhooks" element={<ProtectedRoute><Webhooks /></ProtectedRoute>} />
       <Route path="/antiblock" element={<ProtectedRoute><AntiBlock /></ProtectedRoute>} />
-      <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <SuperadminRoute>
+              <Settings />
+            </SuperadminRoute>
+          </ProtectedRoute>
+        }
+      />
       <Route path="/docs" element={<ProtectedRoute><Docs /></ProtectedRoute>} />
     </Routes>
   )

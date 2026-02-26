@@ -768,6 +768,39 @@ export class Database {
     `, [hashedPassword, now, username]);
   }
 
+  updateUserPasswordById(id: string, hashedPassword: string): void {
+    if (!this.db) return;
+
+    const now = new Date().toISOString();
+    this.db.run(`
+      UPDATE users SET password = ?, updated_at = ? WHERE id = ?
+    `, [hashedPassword, now, id]);
+  }
+
+  getAllUsers(): User[] {
+    if (!this.db) return [];
+    const rows = this.db.query('SELECT id, username, role, created_at, updated_at FROM users ORDER BY created_at ASC').all() as any[];
+    return rows.map(row => ({
+      id: row.id,
+      username: row.username,
+      role: row.role,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at)
+    }));
+  }
+
+  deleteUser(id: string): void {
+    if (!this.db) return;
+    this.db.run('DELETE FROM users WHERE id = ?', [id]);
+  }
+
+  updateUserRole(id: string, role: string): void {
+    if (!this.db) return;
+    const now = new Date().toISOString();
+    this.db.run('UPDATE users SET role = ?, updated_at = ? WHERE id = ?', [role, now, id]);
+  }
+
+
   // Mappers
   private mapUser(row: any): User {
     return {
