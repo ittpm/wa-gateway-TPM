@@ -17,7 +17,8 @@ import {
   User,
   LogOut,
   Crown,
-  UserCheck
+  UserCheck,
+  Calendar
 } from 'lucide-react'
 import { api } from '../services/api'
 import toast from 'react-hot-toast'
@@ -31,6 +32,7 @@ const allMenuItems = [
   { path: '/history', icon: ListOrdered, label: 'Riwayat Pesan' },
   { path: '/send', icon: Send, label: 'Kirim Pesan' },
   { path: '/queue', icon: ListOrdered, label: 'Antrean' },
+  { path: '/scheduled', icon: Calendar, label: 'Pesan Terjadwal' },
   { path: '/webhooks', icon: Webhook, label: 'Webhooks' },
   { path: '/antiblock', icon: Shield, label: 'Anti-Block' },
   { path: '/settings', icon: Settings, label: 'Pengaturan', superadminOnly: true },
@@ -64,7 +66,7 @@ function Layout({ children }) {
   const handleLogout = async () => {
     try {
       await api.post('/auth/logout')
-    } catch {}
+    } catch { }
     localStorage.removeItem('token')
     delete api.defaults.headers.common['Authorization']
     toast.success('Logout berhasil')
@@ -121,9 +123,8 @@ function Layout({ children }) {
           {/* User Info & Logout Footer */}
           <div className="p-4 border-t border-gray-200 space-y-3">
             <div className="flex items-center gap-3 px-2 py-2 rounded-lg bg-gray-50">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                isSuperadmin ? 'bg-yellow-100' : 'bg-blue-100'
-              }`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isSuperadmin ? 'bg-yellow-100' : 'bg-blue-100'
+                }`}>
                 {isSuperadmin
                   ? <Crown className="w-4 h-4 text-yellow-600" />
                   : <UserCheck className="w-4 h-4 text-blue-600" />

@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard'
 import Sessions from './pages/Sessions'
 import SendMessage from './pages/SendMessage'
 import Queue from './pages/Queue'
+import ScheduledMessages from './pages/ScheduledMessages'
 import Webhooks from './pages/Webhooks'
 import AntiBlock from './pages/AntiBlock'
 import Settings from './pages/Settings'
@@ -86,6 +87,7 @@ function App() {
       <Route path="/templates" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
       <Route path="/send" element={<ProtectedRoute><SendMessage /></ProtectedRoute>} />
       <Route path="/queue" element={<ProtectedRoute><Queue /></ProtectedRoute>} />
+      <Route path="/scheduled" element={<ProtectedRoute><ScheduledMessages /></ProtectedRoute>} />
       <Route path="/webhooks" element={<ProtectedRoute><Webhooks /></ProtectedRoute>} />
       <Route path="/antiblock" element={<ProtectedRoute><AntiBlock /></ProtectedRoute>} />
       <Route

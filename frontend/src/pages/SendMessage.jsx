@@ -335,6 +335,17 @@ function SendMessage() {
                 className="input-field resize-none"
               />
             </div>
+            {selectedFile ? (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+                <span>⚠️</span>
+                <span>File upload tidak mendukung penjadwalan. Gunakan <strong>URL Gambar</strong> di atas jika ingin menjadwalkan pesan ini.</span>
+              </div>
+            ) : formData.mediaUrl ? (
+              <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+                <span>✅</span>
+                <span>Mode URL aktif — Anda bisa aktifkan <strong>Schedule Message</strong> di bawah untuk menjadwalkan pesan ini.</span>
+              </div>
+            ) : null}
           </div>
         )
 
