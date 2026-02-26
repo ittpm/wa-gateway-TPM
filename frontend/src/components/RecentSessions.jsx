@@ -15,9 +15,14 @@ function RecentSessions() {
   const fetchSessions = async () => {
     try {
       const response = await api.get('/sessions')
-      setSessions(response.data.slice(0, 5))
+      // Handle berbagai format response: array langsung, atau { data: [...] }
+      const rawData = response.data
+      const sessionList = Array.isArray(rawData) ? rawData :
+        Array.isArray(rawData?.data) ? rawData.data : []
+      setSessions(sessionList.slice(0, 5))
     } catch (error) {
       console.error('Failed to fetch sessions:', error)
+      setSessions([])
     } finally {
       setLoading(false)
     }

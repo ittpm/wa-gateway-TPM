@@ -22,14 +22,21 @@ function ActivityChart() {
   const fetchActivityData = async () => {
     try {
       const response = await api.get('/stats/activity')
-      setData(response.data)
+      const rawData = response.data
+      const activityList = Array.isArray(rawData) ? rawData :
+        Array.isArray(rawData?.data) ? rawData.data : null
+      if (activityList) {
+        setData(activityList)
+      } else {
+        throw new Error('Invalid data format')
+      }
     } catch (error) {
-      // Generate mock data if API fails
+      // Generate mock data if API fails or returns unexpected format
       const mockData = Array.from({ length: 24 }, (_, i) => ({
         time: `${i}:00`,
-        sent: Math.floor(Math.random() * 100),
-        delivered: Math.floor(Math.random() * 90),
-        failed: Math.floor(Math.random() * 10),
+        sent: 0,
+        delivered: 0,
+        failed: 0,
       }))
       setData(mockData)
     } finally {
