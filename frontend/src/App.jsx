@@ -47,11 +47,30 @@ function ProtectedRoute({ children }) {
   return <Layout>{children}</Layout>
 }
 
-// Superadmin-only Route wrapper - hanya superadmin yang bisa mengakses
+// Superadmin-only Route wrapper - fetch role dari API agar akurat meski auth via cookie
 function SuperadminRoute({ children }) {
-  const user = getCurrentUser()
-  if (!user) return <Navigate to="/login" replace />
-  if (user.role !== 'superadmin') return <Navigate to="/" replace />
+  const [allowed, setAllowed] = useState(null)
+
+  useEffect(() => {
+    const checkRole = async () => {
+      try {
+        const response = await api.get('/auth/me')
+        setAllowed(response.data?.user?.role === 'superadmin')
+      } catch {
+        setAllowed(false)
+      }
+    }
+    checkRole()
+  }, [])
+
+  if (allowed === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-whatsapp-600"></div>
+      </div>
+    )
+  }
+  if (!allowed) return <Navigate to="/" replace />
   return children
 }
 

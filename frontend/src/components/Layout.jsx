@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -20,7 +20,6 @@ import {
   UserCheck
 } from 'lucide-react'
 import { api } from '../services/api'
-import { getCurrentUser } from '../utils/auth'
 import toast from 'react-hot-toast'
 
 const allMenuItems = [
@@ -40,17 +39,32 @@ const allMenuItems = [
 
 function Layout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
   const navigate = useNavigate()
-  const currentUser = getCurrentUser()
-  const isSuperadmin = currentUser?.role === 'superadmin'
 
-  // Filter menu berdasarkan role
+  useEffect(() => {
+    // Ambil info user dari API /auth/me agar selalu dapat role terbaru
+    // ini juga berfungsi meski token ada di cookie (bukan hanya localStorage)
+    const fetchUser = async () => {
+      try {
+        const response = await api.get('/auth/me')
+        if (response.data?.user) {
+          setCurrentUser(response.data.user)
+        }
+      } catch {
+        // Tidak perlu handle error, user akan diredirect oleh ProtectedRoute
+      }
+    }
+    fetchUser()
+  }, [])
+
+  const isSuperadmin = currentUser?.role === 'superadmin'
   const menuItems = allMenuItems.filter(item => !item.superadminOnly || isSuperadmin)
 
   const handleLogout = async () => {
     try {
       await api.post('/auth/logout')
-    } catch { }
+    } catch {}
     localStorage.removeItem('token')
     delete api.defaults.headers.common['Authorization']
     toast.success('Logout berhasil')
@@ -106,23 +120,24 @@ function Layout({ children }) {
 
           {/* User Info & Logout Footer */}
           <div className="p-4 border-t border-gray-200 space-y-3">
-            {/* User badge */}
             <div className="flex items-center gap-3 px-2 py-2 rounded-lg bg-gray-50">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isSuperadmin ? 'bg-yellow-100' : 'bg-blue-100'
-                }`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                isSuperadmin ? 'bg-yellow-100' : 'bg-blue-100'
+              }`}>
                 {isSuperadmin
                   ? <Crown className="w-4 h-4 text-yellow-600" />
                   : <UserCheck className="w-4 h-4 text-blue-600" />
                 }
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{currentUser?.username || 'User'}</p>
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {currentUser?.username || '...'}
+                </p>
                 <p className={`text-xs font-medium ${isSuperadmin ? 'text-yellow-600' : 'text-blue-600'}`}>
-                  {isSuperadmin ? 'Superadmin' : 'Admin'}
+                  {currentUser ? (isSuperadmin ? 'Superadmin' : 'Admin') : 'Memuat...'}
                 </p>
               </div>
             </div>
-            {/* Logout button */}
             <button
               onClick={handleLogout}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
