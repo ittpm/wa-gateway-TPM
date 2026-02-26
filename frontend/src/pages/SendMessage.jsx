@@ -570,7 +570,36 @@ function SendMessage() {
             )}
           </div>
 
+          {/* Common Fields - To Field */}
+          {activeTab !== 'bulk' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                <User className="w-4 h-4 inline mr-1" />
+                To (Recipients: nomor dipisah koma)
+              </label>
 
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={formData.to}
+                  onChange={(e) => setFormData(prev => ({ ...prev, to: e.target.value }))}
+                  placeholder="Misal: 6281234567, 6289876543 (boleh banyak nomor)"
+                  className="input-field"
+                  required
+                />
+
+                <button
+                  type="button"
+                  onClick={handleOpenContactModal}
+                  disabled={!formData.sessionId}
+                  className="btn bg-whatsapp-100 text-whatsapp-700 hover:bg-whatsapp-200 border-none shrink-0"
+                  title="Pilih dari Kontak"
+                >
+                  <Users className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Dynamic Form Fields */}
           {renderForm()}
@@ -639,108 +668,110 @@ function SendMessage() {
             </button>
           </div>
         </form>
-      </div>
+      </div >
 
       {/* Contact Checklist Modal */}
-      {isContactModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
-              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                <Users className="w-5 h-5 text-whatsapp-600" />
-                Pilih Kontak
-              </h2>
-              <button
-                type="button"
-                onClick={() => setIsContactModalOpen(false)}
-                className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-4 flex flex-col flex-1 min-h-0">
-              {/* Local Search Input */}
-              <div className="relative mb-4 shrink-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={modalSearchQuery}
-                  onChange={(e) => setModalSearchQuery(e.target.value)}
-                  placeholder="Cari nama atau nomor di sini..."
-                  className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-whatsapp-500/20 focus:border-whatsapp-500 transition-all text-sm outline-none"
-                  autoFocus
-                />
-              </div>
-
-              {/* Contact List */}
-              <div className="flex-1 overflow-y-auto border border-gray-100 rounded-lg bg-gray-50/30">
-                {contactLoading ? (
-                  <div className="flex flex-col items-center justify-center h-48 text-gray-500">
-                    <div className="w-8 h-8 border-3 border-whatsapp-500/30 border-t-whatsapp-500 rounded-full animate-spin mb-3" />
-                    <p className="text-sm font-medium">Memuat kontak...</p>
-                  </div>
-                ) : filteredContacts.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-48 text-gray-500">
-                    <Users className="w-10 h-10 mb-3 text-gray-300" />
-                    <p className="text-sm">Tidak ada kontak ditemukan</p>
-                  </div>
-                ) : (
-                  <ul className="divide-y divide-gray-100">
-                    {filteredContacts.map(contact => (
-                      <li key={contact.id}>
-                        <label className="flex items-center gap-3 px-4 py-3 hover:bg-whatsapp-50 cursor-pointer transition-colors group">
-                          <input
-                            type="checkbox"
-                            checked={selectedContacts.has(contact.phone)}
-                            onChange={() => handleToggleContactSelection(contact.phone)}
-                            className="w-4 h-4 text-whatsapp-600 rounded border-gray-300 focus:ring-whatsapp-500 cursor-pointer"
-                          />
-                          <div className={`w-8 h-8 rounded-full bg-gradient-to-br from-whatsapp-400 to-whatsapp-600 text-white flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-sm opacity-90 group-hover:opacity-100`}>
-                            {(contact.name || contact.phone).charAt(0).toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-gray-900 truncate">
-                              {contact.name || 'Tanpa Nama'}
-                            </p>
-                            <p className="text-xs text-gray-500 font-mono truncate">{contact.phone}</p>
-                          </div>
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between shrink-0">
-              <div className="text-sm font-medium text-gray-600">
-                <span className="text-whatsapp-600 font-bold">{selectedContacts.size}</span> kontak dipilih
-              </div>
-              <div className="flex gap-2">
+      {
+        isContactModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-whatsapp-600" />
+                  Pilih Kontak
+                </h2>
                 <button
                   type="button"
                   onClick={() => setIsContactModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 bg-gray-100 rounded-lg transition-colors"
+                  className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                 >
-                  Batal
+                  <X className="w-5 h-5" />
                 </button>
-                <button
-                  type="button"
-                  onClick={handleApplyContacts}
-                  className="px-4 py-2 text-sm font-medium text-white bg-whatsapp-500 hover:bg-whatsapp-600 rounded-lg shadow-sm shadow-whatsapp-500/20 transition-all font-semibold"
-                >
-                  Terapkan
-                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-4 flex flex-col flex-1 min-h-0">
+                {/* Local Search Input */}
+                <div className="relative mb-4 shrink-0">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={modalSearchQuery}
+                    onChange={(e) => setModalSearchQuery(e.target.value)}
+                    placeholder="Cari nama atau nomor di sini..."
+                    className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-whatsapp-500/20 focus:border-whatsapp-500 transition-all text-sm outline-none"
+                    autoFocus
+                  />
+                </div>
+
+                {/* Contact List */}
+                <div className="flex-1 overflow-y-auto border border-gray-100 rounded-lg bg-gray-50/30">
+                  {contactLoading ? (
+                    <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+                      <div className="w-8 h-8 border-3 border-whatsapp-500/30 border-t-whatsapp-500 rounded-full animate-spin mb-3" />
+                      <p className="text-sm font-medium">Memuat kontak...</p>
+                    </div>
+                  ) : filteredContacts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+                      <Users className="w-10 h-10 mb-3 text-gray-300" />
+                      <p className="text-sm">Tidak ada kontak ditemukan</p>
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-gray-100">
+                      {filteredContacts.map(contact => (
+                        <li key={contact.id}>
+                          <label className="flex items-center gap-3 px-4 py-3 hover:bg-whatsapp-50 cursor-pointer transition-colors group">
+                            <input
+                              type="checkbox"
+                              checked={selectedContacts.has(contact.phone)}
+                              onChange={() => handleToggleContactSelection(contact.phone)}
+                              className="w-4 h-4 text-whatsapp-600 rounded border-gray-300 focus:ring-whatsapp-500 cursor-pointer"
+                            />
+                            <div className={`w-8 h-8 rounded-full bg-gradient-to-br from-whatsapp-400 to-whatsapp-600 text-white flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-sm opacity-90 group-hover:opacity-100`}>
+                              {(contact.name || contact.phone).charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-900 truncate">
+                                {contact.name || 'Tanpa Nama'}
+                              </p>
+                              <p className="text-xs text-gray-500 font-mono truncate">{contact.phone}</p>
+                            </div>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between shrink-0">
+                <div className="text-sm font-medium text-gray-600">
+                  <span className="text-whatsapp-600 font-bold">{selectedContacts.size}</span> kontak dipilih
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsContactModalOpen(false)}
+                    className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 bg-gray-100 rounded-lg transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleApplyContacts}
+                    className="px-4 py-2 text-sm font-medium text-white bg-whatsapp-500 hover:bg-whatsapp-600 rounded-lg shadow-sm shadow-whatsapp-500/20 transition-all font-semibold"
+                  >
+                    Terapkan
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   )
 }
 
