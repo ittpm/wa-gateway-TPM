@@ -39,25 +39,12 @@ function SendMessage() {
   })
   const [selectedFile, setSelectedFile] = useState(null)
 
-  // Contact picker states
-  const [contactSearch, setContactSearch] = useState('')
-  const [contactResults, setContactResults] = useState([])
-  const [showContactDropdown, setShowContactDropdown] = useState(false)
+  // Contact picker Checklist states
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false)
+  const [allContacts, setAllContacts] = useState([])
+  const [modalSearchQuery, setModalSearchQuery] = useState('')
   const [contactLoading, setContactLoading] = useState(false)
-  const [selectedContactName, setSelectedContactName] = useState('')
-  const contactDropdownRef = useRef(null)
-  const debounceRef = useRef(null)
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (contactDropdownRef.current && !contactDropdownRef.current.contains(e.target)) {
-        setShowContactDropdown(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  const [selectedContacts, setSelectedContacts] = useState(new Set())
 
   // Fetch sessions on mount
   useEffect(() => {
@@ -84,55 +71,59 @@ function SendMessage() {
     }
   }
 
-  // Fetch contact suggestions with debounce 300ms
-  const handleContactSearch = useCallback((value) => {
-    setContactSearch(value)
-    setFormData(prev => ({ ...prev, to: value }))
-    setSelectedContactName('')
-
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-
-    if (!value.trim() || value.length < 2) {
-      setContactResults([])
-      setShowContactDropdown(false)
+  // Fetch all contacts for checklist modal
+  const handleOpenContactModal = async () => {
+    if (!formData.sessionId) {
+      toast.error('Please select a WhatsApp session first')
       return
     }
+    setIsContactModalOpen(true)
 
-    debounceRef.current = setTimeout(async () => {
-      if (!formData.sessionId) return
+    // Convert current comma-separated `to` field into the selected set
+    const currentNumbers = formData.to.split(',').map(n => n.trim()).filter(Boolean)
+    setSelectedContacts(new Set(currentNumbers))
+
+    // Fetch contacts if not loaded yet
+    if (allContacts.length === 0) {
       setContactLoading(true)
       try {
-        const res = await api.get(`/sessions/${formData.sessionId}/contacts`, {
-          params: { search: value }
-        })
-        const contacts = (res.data?.contacts || []).filter(c => !c.isGroup).slice(0, 10)
-        setContactResults(contacts)
-        setShowContactDropdown(contacts.length > 0)
-      } catch {
-        setContactResults([])
-        setShowContactDropdown(false)
+        const res = await api.get(`/sessions/${formData.sessionId}/contacts`)
+        const contacts = (res.data?.contacts || []).filter(c => !c.isGroup)
+        setAllContacts(contacts)
+      } catch (error) {
+        toast.error('Failed to load contacts')
+        setAllContacts([])
       } finally {
         setContactLoading(false)
       }
-    }, 300)
-  }, [formData.sessionId])
-
-  const handleSelectContact = (contact) => {
-    const phone = contact.phone
-    setFormData(prev => ({ ...prev, to: phone }))
-    setContactSearch(phone)
-    setSelectedContactName(contact.name || phone)
-    setShowContactDropdown(false)
-    setContactResults([])
+    }
   }
 
-  const handleClearContact = () => {
-    setFormData(prev => ({ ...prev, to: '' }))
-    setContactSearch('')
-    setSelectedContactName('')
-    setContactResults([])
-    setShowContactDropdown(false)
+  const handleToggleContactSelection = (phone) => {
+    setSelectedContacts(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(phone)) {
+        newSet.delete(phone)
+      } else {
+        newSet.add(phone)
+      }
+      return newSet
+    })
   }
+
+  const handleApplyContacts = () => {
+    const numbers = Array.from(selectedContacts).join(', ')
+    setFormData(prev => ({ ...prev, to: numbers }))
+    setIsContactModalOpen(false)
+  }
+
+  const filteredContacts = allContacts.filter(contact => {
+    const query = modalSearchQuery.toLowerCase()
+    return (
+      (contact.name?.toLowerCase() || '').includes(query) ||
+      (contact.phone?.toLowerCase() || '').includes(query)
+    )
+  })
 
   const tabs = [
     { id: 'text', label: 'Text', icon: MessageSquare },
@@ -158,25 +149,45 @@ function SendMessage() {
       let endpoint = '/messages/send'
       let payload = { ...formData }
 
+      // Support sending to multiple numbers by looping through comma-separated 'to' values
+      const recipients = activeTab === 'bulk' ? formData.to.split('\n') : formData.to.split(',')
+      const validRecipients = recipients
+        .map(n => n.trim().replace(/[^0-9]/g, ''))
+        .filter(n => n.length > 5)
+
+      if (validRecipients.length === 0) {
+        toast.error('Silakan isi nomor tujuan yang valid')
+        setLoading(false)
+        return
+      }
+
       // Check if we need to upload file
       if ((activeTab === 'media' || activeTab === 'document') && selectedFile) {
-        // Use file upload endpoint
-        const formDataUpload = new FormData()
-        formDataUpload.append('sessionId', formData.sessionId)
-        formDataUpload.append('to', formData.to)
-        formDataUpload.append('caption', formData.caption || '')
-        formDataUpload.append('file', selectedFile)
+        // Send file to each recipient
+        let successCount = 0;
+        let fileUrl = null; // Backend might not support reusing uploaded file, so we send multipart for each
 
-        const response = await api.post('/messages/send-media', formDataUpload, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
+        for (const recipient of validRecipients) {
+          const formDataUpload = new FormData()
+          formDataUpload.append('sessionId', formData.sessionId)
+          formDataUpload.append('to', recipient)
+          formDataUpload.append('caption', formData.caption || '')
+          formDataUpload.append('file', selectedFile)
+
+          try {
+            await api.post('/messages/send-media', formDataUpload, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+            })
+            successCount++
+          } catch (err) {
+            console.error(`Failed to send media to ${recipient}:`, err)
           }
-        })
+        }
 
-        if (formData.delay) {
-          toast.success(`File uploaded! ${response.data.message}`)
+        if (successCount > 0) {
+          toast.success(formData.delay ? `Files uploaded & queued for ${successCount} numbers!` : `Files sent to ${successCount} numbers!`)
         } else {
-          toast.success('File sent successfully!')
+          toast.error('Failed to send file to recipients')
         }
 
         // Reset form
@@ -208,17 +219,31 @@ function SendMessage() {
           break
         case 'bulk':
           endpoint = '/messages/bulk'
+          payload.recipients = validRecipients // bulk takes array
           break
         default:
           payload.type = 'text'
       }
 
-      const response = await api.post(endpoint, payload)
-
-      if (formData.delay) {
-        toast.success('Message queued successfully! Will be sent with anti-block delay.')
+      if (activeTab === 'bulk') {
+        const response = await api.post(endpoint, payload)
+        toast.success(`Bulk message queued for ${validRecipients.length} recipients!`)
       } else {
-        toast.success('Message sent successfully!')
+        // Loop individual API calls for text/location/etc if multiple numbers
+        let successCount = 0;
+        for (const recipient of validRecipients) {
+          try {
+            await api.post(endpoint, { ...payload, to: recipient })
+            successCount++
+          } catch (err) {
+            console.error(`Failed to send to ${recipient}:`, err)
+          }
+        }
+        if (successCount > 0) {
+          toast.success(formData.delay ? `Messages queued for ${successCount} numbers!` : `Messages sent to ${successCount} numbers!`)
+        } else {
+          toast.error('Failed to send messages')
+        }
       }
 
       // Reset form
@@ -545,89 +570,7 @@ function SendMessage() {
             )}
           </div>
 
-          {/* Common Fields - Contact Picker */}
-          {activeTab !== 'bulk' && (
-            <div ref={contactDropdownRef} className="relative">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                <User className="w-4 h-4 inline mr-1" />
-                To (Penerima)
-              </label>
 
-              {/* Selected contact badge */}
-              {selectedContactName && (
-                <div className="mb-2 flex items-center gap-2">
-                  <div className="flex items-center gap-2 bg-whatsapp-50 border border-whatsapp-200 text-whatsapp-800 text-sm px-3 py-1.5 rounded-full">
-                    <div className="w-5 h-5 rounded-full bg-whatsapp-500 text-white text-xs flex items-center justify-center font-bold">
-                      {selectedContactName.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="font-medium">{selectedContactName}</span>
-                    <span className="text-whatsapp-600 font-mono text-xs">· {formData.to}</span>
-                  </div>
-                  <button type="button" onClick={handleClearContact} className="text-gray-400 hover:text-gray-600 transition-colors">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-
-              {/* Input with search icon */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={contactSearch}
-                  onChange={(e) => handleContactSearch(e.target.value)}
-                  onFocus={() => contactResults.length > 0 && setShowContactDropdown(true)}
-                  placeholder={formData.sessionId ? "Cari nama/nomor kontak atau ketik nomor manual..." : "Pilih session dulu, lalu cari kontak..."}
-                  className="input-field pl-9 pr-8"
-                  required
-                  disabled={!formData.sessionId}
-                />
-                {contactLoading && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-whatsapp-500/30 border-t-whatsapp-500 rounded-full animate-spin" />
-                )}
-              </div>
-
-              {/* Dropdown contact results */}
-              {showContactDropdown && contactResults.length > 0 && (
-                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
-                  <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-medium">
-                    {contactResults.length} kontak ditemukan — klik untuk pilih
-                  </div>
-                  <ul className="max-h-60 overflow-y-auto divide-y divide-gray-100">
-                    {contactResults.map((contact) => (
-                      <li
-                        key={contact.id}
-                        onClick={() => handleSelectContact(contact)}
-                        className="flex items-center gap-3 px-4 py-3 hover:bg-whatsapp-50 cursor-pointer transition-colors group"
-                      >
-                        {/* Avatar */}
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-whatsapp-400 to-whatsapp-600 text-white flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-sm">
-                          {(contact.name || contact.phone).charAt(0).toUpperCase()}
-                        </div>
-                        {/* Info */}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-900 truncate">
-                            {contact.name || 'Tanpa Nama'}
-                          </p>
-                          <p className="text-xs text-gray-500 font-mono truncate">{contact.phone}</p>
-                        </div>
-                        {/* Arrow indicator */}
-                        <span className="text-whatsapp-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs font-medium">Pilih →</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Hint when no session selected */}
-              {!formData.sessionId && (
-                <p className="text-xs text-amber-600 mt-1">⚠️ Pilih WhatsApp Session terlebih dahulu untuk menggunakan pencarian kontak.</p>
-              )}
-              {formData.sessionId && !selectedContactName && (
-                <p className="text-xs text-gray-400 mt-1">💡 Ketik minimal 2 karakter untuk cari dari kontak tersimpan, atau langsung masukkan nomor (contoh: 6281234567890)</p>
-              )}
-            </div>
-          )}
 
           {/* Dynamic Form Fields */}
           {renderForm()}
@@ -697,6 +640,106 @@ function SendMessage() {
           </div>
         </form>
       </div>
+
+      {/* Contact Checklist Modal */}
+      {isContactModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
+              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Users className="w-5 h-5 text-whatsapp-600" />
+                Pilih Kontak
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsContactModalOpen(false)}
+                className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 flex flex-col flex-1 min-h-0">
+              {/* Local Search Input */}
+              <div className="relative mb-4 shrink-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={modalSearchQuery}
+                  onChange={(e) => setModalSearchQuery(e.target.value)}
+                  placeholder="Cari nama atau nomor di sini..."
+                  className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-whatsapp-500/20 focus:border-whatsapp-500 transition-all text-sm outline-none"
+                  autoFocus
+                />
+              </div>
+
+              {/* Contact List */}
+              <div className="flex-1 overflow-y-auto border border-gray-100 rounded-lg bg-gray-50/30">
+                {contactLoading ? (
+                  <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+                    <div className="w-8 h-8 border-3 border-whatsapp-500/30 border-t-whatsapp-500 rounded-full animate-spin mb-3" />
+                    <p className="text-sm font-medium">Memuat kontak...</p>
+                  </div>
+                ) : filteredContacts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+                    <Users className="w-10 h-10 mb-3 text-gray-300" />
+                    <p className="text-sm">Tidak ada kontak ditemukan</p>
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-gray-100">
+                    {filteredContacts.map(contact => (
+                      <li key={contact.id}>
+                        <label className="flex items-center gap-3 px-4 py-3 hover:bg-whatsapp-50 cursor-pointer transition-colors group">
+                          <input
+                            type="checkbox"
+                            checked={selectedContacts.has(contact.phone)}
+                            onChange={() => handleToggleContactSelection(contact.phone)}
+                            className="w-4 h-4 text-whatsapp-600 rounded border-gray-300 focus:ring-whatsapp-500 cursor-pointer"
+                          />
+                          <div className={`w-8 h-8 rounded-full bg-gradient-to-br from-whatsapp-400 to-whatsapp-600 text-white flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-sm opacity-90 group-hover:opacity-100`}>
+                            {(contact.name || contact.phone).charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 truncate">
+                              {contact.name || 'Tanpa Nama'}
+                            </p>
+                            <p className="text-xs text-gray-500 font-mono truncate">{contact.phone}</p>
+                          </div>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between shrink-0">
+              <div className="text-sm font-medium text-gray-600">
+                <span className="text-whatsapp-600 font-bold">{selectedContacts.size}</span> kontak dipilih
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsContactModalOpen(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 bg-gray-100 rounded-lg transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyContacts}
+                  className="px-4 py-2 text-sm font-medium text-white bg-whatsapp-500 hover:bg-whatsapp-600 rounded-lg shadow-sm shadow-whatsapp-500/20 transition-all font-semibold"
+                >
+                  Terapkan
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
