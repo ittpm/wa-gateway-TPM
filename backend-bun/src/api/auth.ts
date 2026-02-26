@@ -68,9 +68,13 @@ export function setupAuthRoutes(db: Database): Router {
                 { expiresIn: '24h' }
             );
 
+            // Detect real HTTPS via X-Forwarded-Proto (proxy) or direct SSL
+            const isHttps = req.headers['x-forwarded-proto'] === 'https' ||
+                            req.secure;
+
             res.cookie('token', token, {
                 httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
+                secure: isHttps,
                 maxAge: 24 * 60 * 60 * 1000
             });
 

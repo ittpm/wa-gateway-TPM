@@ -28,7 +28,15 @@ const HOST = process.env.HOST || '0.0.0.0';
 await cleanupPort(PORT);
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'upgrade-insecure-requests': null, // Disable: app runs on HTTP internally
+    }
+  },
+  hsts: false, // Disable HSTS for HTTP environments
+}));
 app.use(compression());
 app.use(cookieParser());
 

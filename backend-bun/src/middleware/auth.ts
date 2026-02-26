@@ -77,7 +77,7 @@ export const authenticateToken = createAuthMiddleware();
 
 export const requireRole = (role: string) => {
     return (req: AuthRequest, res: Response, next: NextFunction) => {
-        if (!req.user || (req.user.role !== role && req.user.role !== 'admin')) {
+        if (!req.user || (req.user.role !== role && req.user.role !== 'admin' && req.user.role !== 'superadmin')) {
             return res.status(403).json({ error: 'Insufficient permissions' });
         }
         next();
