@@ -34,6 +34,7 @@ export class ConnectionManager {
   private readonly MAX_CONCURRENT_SYNC = 3; // Max 3 session sync bersamaan
   private readonly SYNC_COOLDOWN = 30000; // 30 detik cooldown antar sync manual
   private lastManualSync: Map<string, number> = new Map();
+  private lastSyncAttempt: Map<string, number> = new Map(); // throttle untuk auto-sync
 
   // Status mapping dari Baileys ke internal
   private readonly STATUS_MAP: Record<string, string> = {
@@ -141,13 +142,21 @@ export class ConnectionManager {
         }
 
         // Tunggu beberapa detik agar store terisi, lalu sinkronisasi kontak
-        setTimeout(() => {
-          try {
-            this.syncChatsHistory(sessionId);
-          } catch (error) {
-            logger.error(`[Session ${sessionId}] Auto sync failed:`, error);
-          }
-        }, 3000);
+        // Throttle: jangan jalankan sync jika sudah ada yang berjalan dalam 60 detik terakhir
+        const lastSync = this.lastSyncAttempt.get(sessionId) || 0;
+        const now = Date.now();
+        if (now - lastSync < 60000) {
+          logger.info(`[Session ${sessionId}] Auto-sync skipped (throttled, last sync was ${Math.round((now - lastSync) / 1000)}s ago)`);
+        } else {
+          this.lastSyncAttempt.set(sessionId, now);
+          setTimeout(() => {
+            try {
+              this.syncChatsHistory(sessionId);
+            } catch (error) {
+              logger.error(`[Session ${sessionId}] Auto sync failed:`, error);
+            }
+          }, 3000);
+        }
       },
       onDisconnected: (sessionId: string) => {
         logger.info(`[Session ${sessionId}] disconnected`);
@@ -1029,6 +1038,9 @@ export class ConnectionManager {
       if (!session?.sock) {
         logger.warn(`[Session ${sessionId}] Socket not available`);
         if (conn) conn.contactsSyncStatus = 'error';
+        // Release lock so queue can continue
+        this.syncInProgress.set(sessionId, false);
+        this.processSyncQueue();
         return;
       }
 
