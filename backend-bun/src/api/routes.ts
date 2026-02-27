@@ -5,7 +5,7 @@ import type { QueueManager } from '../queue/manager.js';
 import type { WebhookDispatcher } from '../webhook/dispatcher.js';
 import { SessionPool } from '../connection/session-pool.js';
 import { logger } from '../utils/logger.js';
-import { ensureUploadDir, getFileType, validateFile } from '../middleware/upload.js';
+import { ensureUploadDir, ensureScheduledUploadDir, getFileType, validateFile } from '../middleware/upload.js';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 
@@ -345,7 +345,116 @@ export function setupRoutes(
     }
   });
 
-  // Get message history
+  // ========== UPLOAD FILE FOR SCHEDULED MESSAGE ==========
+  // Upload attachment + jadwalkan pengiriman (tanpa perlu URL eksternal)
+  router.post('/messages/upload-scheduled', async (req, res) => {
+    try {
+      const contentType = req.headers['content-type'] || '';
+      if (!contentType.includes('multipart/form-data')) {
+        return res.status(400).json({ error: 'Content-Type must be multipart/form-data' });
+      }
+
+      // Read raw body
+      const chunks: Buffer[] = [];
+      for await (const chunk of req as any) {
+        chunks.push(chunk);
+      }
+      const buffer = Buffer.concat(chunks);
+
+      // Parse multipart
+      const boundary = contentType.split('boundary=')[1];
+      if (!boundary) {
+        return res.status(400).json({ error: 'No boundary found' });
+      }
+
+      const { fields, files } = parseMultipartForm(buffer, boundary);
+
+      const sessionId = fields.sessionId;
+      const to = fields.to;
+      const caption = fields.caption || '';
+      const scheduledAtRaw = fields.scheduledAt;
+
+      if (!sessionId || !to) {
+        return res.status(400).json({ error: 'sessionId and to are required' });
+      }
+
+      if (!scheduledAtRaw) {
+        return res.status(400).json({ error: 'scheduledAt is required for scheduled upload' });
+      }
+
+      const scheduledAt = new Date(scheduledAtRaw);
+      if (isNaN(scheduledAt.getTime()) || scheduledAt <= new Date()) {
+        return res.status(400).json({ error: 'scheduledAt harus berupa waktu di masa depan yang valid' });
+      }
+
+      if (!files || files.length === 0) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      // Check session
+      const session = connectionManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+      if (session.status !== 'connected') {
+        return res.status(400).json({ error: `Session not connected (status: ${session.status})` });
+      }
+
+      // Validate file
+      const file = files[0];
+      const validation = validateFile(file);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
+
+      // Save to ./uploads/scheduled/
+      const scheduledDir = await ensureScheduledUploadDir();
+      const fileExt = file.originalname.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = join(scheduledDir, fileName);
+
+      await writeFile(filePath, file.buffer);
+      logger.info(`[Upload-Scheduled] File saved: ${fileName} (${file.size} bytes), scheduled at ${scheduledAt.toISOString()}`);
+
+      // Determine message type
+      const fileType = getFileType(file.mimetype);
+      let messageType = 'document';
+      if (fileType === 'image') messageType = 'image';
+      else if (fileType === 'video') messageType = 'video';
+      else if (fileType === 'audio') messageType = 'audio';
+
+      // Add to queue with scheduledAt
+      const msg = queueManager.addMessage({
+        sessionId,
+        to,
+        type: messageType as any,
+        content: caption,
+        mediaUrl: filePath,
+        caption,
+        status: 'pending',
+        useSpintax: false,
+        delayEnabled: false, // Tidak tambah random delay karena sudah ada scheduledAt eksplisit
+        scheduledAt
+      });
+
+      logger.info(`[Upload-Scheduled] Message queued: ${msg.id}, scheduled at ${scheduledAt.toISOString()}`);
+
+      res.status(202).json({
+        messageId: msg.id,
+        status: 'scheduled',
+        fileName: file.originalname,
+        fileType: messageType,
+        scheduledAt: scheduledAt.toISOString(),
+        message: `File disimpan dan akan dikirim pada ${scheduledAt.toLocaleString('id-ID')}`
+      });
+
+    } catch (error: any) {
+      logger.error('[API] Error uploading scheduled media:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+
   router.get('/messages', async (req, res) => {
     try {
       const { sessionId, status, search, page, limit } = req.query;

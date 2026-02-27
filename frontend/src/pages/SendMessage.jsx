@@ -163,10 +163,47 @@ function SendMessage() {
 
       // Check if we need to upload file
       if ((activeTab === 'media' || activeTab === 'document') && selectedFile) {
-        // Send file to each recipient
-        let successCount = 0;
-        let fileUrl = null; // Backend might not support reusing uploaded file, so we send multipart for each
 
+        // Jika ada schedule + file → pakai endpoint upload-scheduled
+        if (formData.scheduledAt) {
+          const scheduledDate = new Date(formData.scheduledAt)
+          if (isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
+            toast.error('Waktu jadwal harus di masa depan')
+            setLoading(false)
+            return
+          }
+
+          let successCount = 0
+          for (const recipient of validRecipients) {
+            const fd = new FormData()
+            fd.append('sessionId', formData.sessionId)
+            fd.append('to', recipient)
+            fd.append('caption', formData.caption || '')
+            fd.append('scheduledAt', scheduledDate.toISOString())
+            fd.append('file', selectedFile)
+            try {
+              await api.post('/messages/upload-scheduled', fd, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+              })
+              successCount++
+            } catch (err) {
+              console.error(`Failed to schedule media to ${recipient}:`, err)
+            }
+          }
+
+          if (successCount > 0) {
+            toast.success(`File dijadwalkan untuk ${successCount} nomor!`)
+          } else {
+            toast.error('Gagal menjadwalkan file ke penerima')
+          }
+          setFormData(prev => ({ ...prev, to: '', caption: '', scheduledAt: '' }))
+          setSelectedFile(null)
+          setLoading(false)
+          return
+        }
+
+        // Kirim langsung (tanpa schedule) → pakai send-media
+        let successCount = 0;
         for (const recipient of validRecipients) {
           const formDataUpload = new FormData()
           formDataUpload.append('sessionId', formData.sessionId)
@@ -335,10 +372,15 @@ function SendMessage() {
                 className="input-field resize-none"
               />
             </div>
-            {selectedFile ? (
-              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
-                <span>⚠️</span>
-                <span>File upload tidak mendukung penjadwalan. Gunakan <strong>URL Gambar</strong> di atas jika ingin menjadwalkan pesan ini.</span>
+            {selectedFile && formData.scheduledAt ? (
+              <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+                <span>✅</span>
+                <span>File upload + Schedule aktif — file akan disimpan di server dan dikirim tepat pada waktunya.</span>
+              </div>
+            ) : selectedFile ? (
+              <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+                <span>ℹ️</span>
+                <span>File akan dikirim langsung. Centang <strong>Schedule Message</strong> di bawah untuk menjadwalkan pengiriman beserta file ini.</span>
               </div>
             ) : formData.mediaUrl ? (
               <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
@@ -397,6 +439,22 @@ function SendMessage() {
                 className="input-field resize-none"
               />
             </div>
+            {selectedFile && formData.scheduledAt ? (
+              <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+                <span>✅</span>
+                <span>File upload + Schedule aktif — file akan disimpan di server dan dikirim tepat pada waktunya.</span>
+              </div>
+            ) : selectedFile ? (
+              <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+                <span>ℹ️</span>
+                <span>File akan dikirim langsung. Centang <strong>Schedule Message</strong> di bawah untuk menjadwalkan pengiriman beserta file ini.</span>
+              </div>
+            ) : formData.mediaUrl ? (
+              <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+                <span>✅</span>
+                <span>Mode URL aktif — Anda bisa aktifkan <strong>Schedule Message</strong> di bawah untuk menjadwalkan pesan ini.</span>
+              </div>
+            ) : null}
           </div>
         )
 

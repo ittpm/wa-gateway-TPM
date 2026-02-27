@@ -1,7 +1,8 @@
 import { type Request, type Response, type NextFunction } from 'express';
 import { logger } from '../utils/logger.js';
-import { mkdir } from 'fs/promises';
+import { mkdir, readdir, unlink, stat } from 'fs/promises';
 import { existsSync } from 'fs';
+import { join } from 'path';
 
 // File upload configuration
 export interface UploadedFile {
@@ -41,6 +42,52 @@ export async function ensureUploadDir(): Promise<string> {
   return uploadDir;
 }
 
+export async function ensureScheduledUploadDir(): Promise<string> {
+  const scheduledDir = './uploads/scheduled';
+  if (!existsSync(scheduledDir)) {
+    await mkdir(scheduledDir, { recursive: true });
+  }
+  return scheduledDir;
+}
+
+/**
+ * Hapus file di ./uploads/scheduled/ yang usianya lebih dari maxAgeDays hari.
+ * Dipanggil oleh cron job harian di QueueManager.
+ */
+export async function cleanOldScheduledFiles(maxAgeDays: number = 30): Promise<void> {
+  const scheduledDir = './uploads/scheduled';
+  if (!existsSync(scheduledDir)) return;
+
+  const cutoffMs = maxAgeDays * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  let deleted = 0;
+
+  try {
+    const files = await readdir(scheduledDir);
+    for (const file of files) {
+      const filePath = join(scheduledDir, file);
+      try {
+        const fileStat = await stat(filePath);
+        const ageMs = now - fileStat.mtimeMs;
+        if (ageMs > cutoffMs) {
+          await unlink(filePath);
+          deleted++;
+          logger.info(`[Upload] Cleanup: deleted old scheduled file ${file} (age: ${Math.floor(ageMs / 86400000)}d)`);
+        }
+      } catch (err) {
+        logger.warn(`[Upload] Cleanup: could not process file ${file}:`, err);
+      }
+    }
+    if (deleted > 0) {
+      logger.info(`[Upload] Cleanup complete: ${deleted} file(s) deleted from ./uploads/scheduled/`);
+    } else {
+      logger.info('[Upload] Cleanup: no old scheduled files to delete');
+    }
+  } catch (err) {
+    logger.error('[Upload] Cleanup failed:', err);
+  }
+}
+
 export function getFileType(mimetype: string): string | null {
   for (const [type, mimes] of Object.entries(ALLOWED_MIME_TYPES)) {
     if (mimes.includes(mimetype)) {
@@ -72,7 +119,7 @@ export async function fileUploadMiddleware(
   next: NextFunction
 ): Promise<void> {
   const contentType = req.headers['content-type'] || '';
-  
+
   if (!contentType.includes('multipart/form-data')) {
     return next();
   }
@@ -80,13 +127,13 @@ export async function fileUploadMiddleware(
   try {
     // Parse multipart form data manually
     const chunks: Buffer[] = [];
-    
+
     for await (const chunk of req.body) {
       chunks.push(chunk);
     }
-    
+
     const buffer = Buffer.concat(chunks);
-    
+
     // Extract boundary
     const boundary = contentType.split('boundary=')[1];
     if (!boundary) {
@@ -95,11 +142,11 @@ export async function fileUploadMiddleware(
     }
 
     const parts = parseMultipartForm(buffer, boundary);
-    
+
     // Attach parsed data to request
     (req as any).body = parts.fields;
     (req as any).files = parts.files;
-    
+
     next();
   } catch (error) {
     logger.error('[Upload] Error parsing multipart form:', error);
@@ -115,27 +162,27 @@ interface MultipartResult {
 function parseMultipartForm(buffer: Buffer, boundary: string): MultipartResult {
   const result: MultipartResult = { fields: {}, files: [] };
   const boundaryBuffer = Buffer.from(`--${boundary}`);
-  
+
   let start = buffer.indexOf(boundaryBuffer);
-  
+
   while (start !== -1) {
     let end = buffer.indexOf(boundaryBuffer, start + boundaryBuffer.length);
     if (end === -1) break;
-    
+
     const part = buffer.slice(start + boundaryBuffer.length, end);
     const headerEnd = part.indexOf('\r\n\r\n');
-    
+
     if (headerEnd !== -1) {
       const header = part.slice(0, headerEnd).toString();
       const data = part.slice(headerEnd + 4, part.length - 2); // Remove trailing \r\n
-      
+
       const nameMatch = header.match(/name="([^"]+)"/);
       const filenameMatch = header.match(/filename="([^"]+)"/);
       const contentTypeMatch = header.match(/Content-Type: (.+)/i);
-      
+
       if (nameMatch) {
         const name = nameMatch[1];
-        
+
         if (filenameMatch && contentTypeMatch) {
           // It's a file
           result.files.push({
@@ -152,9 +199,9 @@ function parseMultipartForm(buffer: Buffer, boundary: string): MultipartResult {
         }
       }
     }
-    
+
     start = end;
   }
-  
+
   return result;
 }

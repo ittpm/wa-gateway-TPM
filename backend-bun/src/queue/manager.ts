@@ -4,6 +4,7 @@ import { WebhookDispatcher } from '../webhook/dispatcher.js';
 import type { Message } from '../models/types.js';
 import { spin } from '../utils/spintax.js';
 import { logger } from '../utils/logger.js';
+import { cleanOldScheduledFiles } from '../middleware/upload.js';
 import cron from 'node-cron';
 // UUID menggunakan crypto.randomUUID() native
 
@@ -15,6 +16,7 @@ export class QueueManager {
   private isPaused = false;
   private cronJob: cron.ScheduledTask | null = null;
   private guardianCronJob: cron.ScheduledTask | null = null;
+  private cleanupCronJob: cron.ScheduledTask | null = null;
   private processingMessageIds: Set<string> = new Set();
 
   constructor(
@@ -70,6 +72,13 @@ export class QueueManager {
       } catch (err) {
         logger.error('[Queue] Guardian error:', err);
       }
+    });
+
+    // ─── Cleanup: hapus file scheduled upload yang lebih dari 30 hari, setiap hari pukul 02:00 ───
+    this.cleanupCronJob = cron.schedule('0 2 * * *', async () => {
+      if (!this.isRunning) return;
+      logger.info('[Queue] Running scheduled upload files cleanup (files > 30 days)...');
+      await cleanOldScheduledFiles(30);
     });
 
     logger.info('Queue manager initialized');
@@ -363,6 +372,9 @@ export class QueueManager {
     }
     if (this.guardianCronJob) {
       this.guardianCronJob.stop();
+    }
+    if (this.cleanupCronJob) {
+      this.cleanupCronJob.stop();
     }
   }
 }
