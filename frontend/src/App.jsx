@@ -10,6 +10,8 @@ import Webhooks from './pages/Webhooks'
 import AntiBlock from './pages/AntiBlock'
 import Settings from './pages/Settings'
 import Docs from './pages/Docs'
+import DocsUmum from './pages/DocsUmum'
+import DocsAdvanced from './pages/DocsAdvanced'
 import Contacts from './pages/Contacts'
 import Groups from './pages/Groups'
 import Templates from './pages/Templates'
@@ -100,7 +102,9 @@ function App() {
           </ProtectedRoute>
         }
       />
-      <Route path="/docs" element={<ProtectedRoute><Docs /></ProtectedRoute>} />
+      <Route path="/docs" element={<ProtectedRoute><DocsUmum /></ProtectedRoute>} />
+      <Route path="/docs/umum" element={<ProtectedRoute><DocsUmum /></ProtectedRoute>} />
+      <Route path="/docs/advanced" element={<ProtectedRoute><DocsAdvanced /></ProtectedRoute>} />
     </Routes>
   )
 }

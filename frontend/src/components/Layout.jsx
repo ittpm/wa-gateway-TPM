@@ -18,7 +18,9 @@ import {
   LogOut,
   Crown,
   UserCheck,
-  Calendar
+  Calendar,
+  ChevronDown,
+  BookMarked
 } from 'lucide-react'
 import { api } from '../services/api'
 import toast from 'react-hot-toast'
@@ -36,11 +38,11 @@ const allMenuItems = [
   { path: '/webhooks', icon: Webhook, label: 'Webhooks' },
   { path: '/antiblock', icon: Shield, label: 'Anti-Block' },
   { path: '/settings', icon: Settings, label: 'Pengaturan', superadminOnly: true },
-  { path: '/docs', icon: BookOpen, label: 'Dokumentasi API' },
 ]
 
 function Layout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [docsOpen, setDocsOpen] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
   const navigate = useNavigate()
 
@@ -118,6 +120,43 @@ function Layout({ children }) {
                 {item.label}
               </NavLink>
             ))}
+
+            {/* Dokumentasi API — Sub-menu */}
+            <div>
+              <button
+                onClick={() => setDocsOpen(prev => !prev)}
+                className="sidebar-link w-full text-left"
+              >
+                <BookOpen className="w-5 h-5" />
+                <span className="flex-1">Dokumentasi API</span>
+                <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${docsOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {docsOpen && (
+                <div className="ml-4 mt-1 space-y-0.5 border-l-2 border-gray-100 pl-3">
+                  <NavLink
+                    to="/docs/umum"
+                    onClick={() => setSidebarOpen(false)}
+                    className={({ isActive }) =>
+                      `flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${isActive ? 'bg-whatsapp-50 text-whatsapp-700 font-semibold' : 'text-gray-600 hover:bg-gray-50'}`
+                    }
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    API Umum
+                  </NavLink>
+                  <NavLink
+                    to="/docs/advanced"
+                    onClick={() => setSidebarOpen(false)}
+                    className={({ isActive }) =>
+                      `flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${isActive ? 'bg-gray-100 text-gray-900 font-semibold' : 'text-gray-600 hover:bg-gray-50'}`
+                    }
+                  >
+                    <BookMarked className="w-4 h-4" />
+                    API Advanced
+                  </NavLink>
+                </div>
+              )}
+            </div>
           </nav>
 
           {/* User Info & Logout Footer */}
