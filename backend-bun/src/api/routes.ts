@@ -199,7 +199,7 @@ export function setupRoutes(
   // ========== MESSAGES ==========
   router.post('/messages/send', validate(sendMessageSchema), async (req, res) => {
     try {
-      const { to, type, message, mediaUrl, caption, useSpintax, delay } = req.body;
+      const { to, type, message, mediaUrl, caption, useSpintax, delay, scheduledAt: scheduledAtRaw } = req.body;
       // Allow sessionId from body OR from per-session API key context
       const sessionId = req.body.sessionId || (req as any).sessionApiKeyId;
 
@@ -221,6 +221,15 @@ export function setupRoutes(
         return res.status(400).json({ error: `Session not connected (status: ${session.status})` });
       }
 
+      // Parse scheduledAt
+      let scheduledAt: Date | undefined = undefined;
+      if (scheduledAtRaw) {
+        scheduledAt = new Date(scheduledAtRaw);
+        if (isNaN(scheduledAt.getTime()) || scheduledAt <= new Date()) {
+          return res.status(400).json({ error: 'scheduledAt harus berupa waktu di masa depan yang valid' });
+        }
+      }
+
       logger.info(`[API] Adding message to queue for session ${sessionId}`);
 
       const msg = queueManager.addMessage({
@@ -230,9 +239,10 @@ export function setupRoutes(
         content: message || '',
         mediaUrl: req.body.media || req.body.mediaUrl,
         caption,
-        status: 'pending',
+        status: scheduledAt ? 'scheduled' : 'pending',
         useSpintax: useSpintax || false,
-        delayEnabled: delay !== false
+        delayEnabled: delay !== false && !scheduledAt, // Disable random delay if exact schedule
+        scheduledAt
       });
 
       logger.info(`[API] Message queued: ${msg.id}`);

@@ -20,7 +20,8 @@ import {
   UserCheck,
   Calendar,
   ChevronDown,
-  BookMarked
+  BookMarked,
+  Clock
 } from 'lucide-react'
 import { api } from '../services/api'
 import toast from 'react-hot-toast'
@@ -44,7 +45,13 @@ function Layout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [docsOpen, setDocsOpen] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
+  const [currentTime, setCurrentTime] = useState(new Date())
   const navigate = useNavigate()
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     // Ambil info user dari API /auth/me agar selalu dapat role terbaru
@@ -100,7 +107,10 @@ function Layout({ children }) {
               </div>
               <div>
                 <h1 className="font-bold text-xl text-gray-900">WA Gateway</h1>
-                <p className="text-xs text-gray-500">Multi-Device Gateway</p>
+                <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                  <Clock className="w-3 h-3" />
+                  {currentTime.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'medium' })} WIB
+                </p>
               </div>
             </div>
           </div>
@@ -197,7 +207,13 @@ function Layout({ children }) {
             <div className="w-8 h-8 bg-whatsapp-500 rounded-lg flex items-center justify-center">
               <MessageCircle className="w-5 h-5 text-white" />
             </div>
-            <span className="font-semibold text-gray-900">WA Gateway</span>
+            <div className="flex flex-col">
+              <span className="font-semibold text-gray-900 text-sm">WA Gateway</span>
+              <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {currentTime.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB
+              </span>
+            </div>
           </div>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
