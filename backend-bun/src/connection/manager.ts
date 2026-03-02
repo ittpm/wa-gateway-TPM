@@ -680,7 +680,7 @@ export class ConnectionManager {
     if (!conn) return;
 
     // Listen ke event contacts.upsert - ini dipicu saat WhatsApp mengirim kontak
-    sock.ev?.on('contacts.upsert', (contacts: any[]) => {
+    sock.ev?.on('contacts.upsert', async (contacts: any[]) => {
       try {
         logger.info(`[Session ${sessionId}] Received ${contacts.length} contacts from sync`);
 
@@ -703,7 +703,14 @@ export class ConnectionManager {
         }
 
         if (contactsToSave.length > 0) {
-          this.db.bulkUpsertContacts(contactsToSave);
+          // Process in chunks to prevent blocking the event loop
+          const CHUNK_SIZE = 100;
+          for (let i = 0; i < contactsToSave.length; i += CHUNK_SIZE) {
+            const chunk = contactsToSave.slice(i, i + CHUNK_SIZE);
+            this.db.bulkUpsertContacts(chunk);
+            // Yield to event loop to allow other tasks (like sending messages) to process
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
         }
 
         const totalCount = this.db.getContactsCount(sessionId);
@@ -717,7 +724,7 @@ export class ConnectionManager {
     });
 
     // Listen ke event chats.upsert - untuk mendapatkan kontak dari chat history
-    sock.ev?.on('chats.upsert', (chats: any[]) => {
+    sock.ev?.on('chats.upsert', async (chats: any[]) => {
       try {
         logger.debug(`[Session ${sessionId}] Received ${chats.length} chats from sync`);
 
@@ -740,7 +747,14 @@ export class ConnectionManager {
         }
 
         if (contactsToSave.length > 0) {
-          this.db.bulkUpsertContacts(contactsToSave);
+          // Process in chunks to prevent blocking the event loop
+          const CHUNK_SIZE = 100;
+          for (let i = 0; i < contactsToSave.length; i += CHUNK_SIZE) {
+            const chunk = contactsToSave.slice(i, i + CHUNK_SIZE);
+            this.db.bulkUpsertContacts(chunk);
+            // Yield to event loop
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
         }
       } catch (err) {
         logger.error(`[Session ${sessionId}] Error in chats.upsert:`, err);
@@ -779,7 +793,7 @@ export class ConnectionManager {
     });
 
     // Listen ke messaging-history.set - event penting untuk history sync
-    sock.ev?.on('messaging-history.set', ({ contacts, chats }: any) => {
+    sock.ev?.on('messaging-history.set', async ({ contacts, chats }: any) => {
       try {
         const contactsToSave = [];
 
@@ -827,7 +841,14 @@ export class ConnectionManager {
         }
 
         if (contactsToSave.length > 0) {
-          this.db.bulkUpsertContacts(contactsToSave);
+          // Process in chunks to prevent blocking the event loop
+          const CHUNK_SIZE = 100;
+          for (let i = 0; i < contactsToSave.length; i += CHUNK_SIZE) {
+            const chunk = contactsToSave.slice(i, i + CHUNK_SIZE);
+            this.db.bulkUpsertContacts(chunk);
+            // Yield to event loop
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
         }
 
         const totalCount = this.db.getContactsCount(sessionId);
@@ -1056,7 +1077,13 @@ export class ConnectionManager {
           totalInStore += contactArray.length;
           logger.info(`[Session ${sessionId}] Found ${contactArray.length} contacts in store.contacts`);
 
-          for (const contact of contactArray) {
+          for (let i = 0; i < contactArray.length; i++) {
+            const contact = contactArray[i];
+            // Yield every 100 iterations to keep the event loop responsive
+            if (i > 0 && i % 100 === 0) {
+              await new Promise(resolve => setTimeout(resolve, 50));
+            }
+
             if (contact.id && !contact.id.includes('status@broadcast')) {
               // Prioritaskan nama lengkap, lalu pushname, lalu notify, lalu verifiedName
               const contactName = contact.name ||
@@ -1086,7 +1113,13 @@ export class ConnectionManager {
           totalInStore += chatArray.length;
           logger.info(`[Session ${sessionId}] Found ${chatArray.length} chats in store.chats`);
 
-          for (const chat of chatArray) {
+          for (let i = 0; i < chatArray.length; i++) {
+            const chat = chatArray[i];
+            // Yield every 100 iterations to keep the event loop responsive
+            if (i > 0 && i % 100 === 0) {
+              await new Promise(resolve => setTimeout(resolve, 50));
+            }
+
             if (chat.id && !chat.id.includes('status@broadcast')) {
               const chatName = chat.name ||
                 chat.verifiedName ||
@@ -1108,9 +1141,9 @@ export class ConnectionManager {
 
       // Coba fetch dari group participants
       try {
-        const groups = sock.groupFetchAllParticipating || await sock.groupFetchAllParticipating?.();
+        const groups = sock.groupFetchAllParticipating ? await sock.groupFetchAllParticipating() : null;
         if (groups && typeof groups === 'object') {
-          const groupArray = Object.values(groups);
+          const groupArray = Object.values(groups) as any[];
           logger.info(`[Session ${sessionId}] Found ${groupArray.length} groups`);
 
           for (const group of groupArray) {
@@ -1133,7 +1166,7 @@ export class ConnectionManager {
             }
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         logger.debug(`[Session ${sessionId}] Groups not accessible:`, err?.message);
       }
 
