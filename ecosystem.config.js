@@ -16,8 +16,8 @@ module.exports = {
     },
     {
       name: 'wa-gateway-frontend',
-      script: '/usr/bin/serve',
-      args: '-s dist -l tcp://0.0.0.0:9000',
+      script: 'node_modules/.bin/serve',
+      args: '-s dist -l 9000',
       cwd: '/opt/wa-gateway-TPM/frontend',
       instances: 1,
       autorestart: true,

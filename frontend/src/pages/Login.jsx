@@ -127,10 +127,7 @@ function Login() {
           </div>
         </form>
 
-        <div className="text-center text-sm text-gray-500">
-          <p>Default login: admin / admin</p>
-          <p className="mt-1"> atau buat user baru via API</p>
-        </div>
+
       </div>
     </div>
   )
