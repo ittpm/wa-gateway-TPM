@@ -12,6 +12,7 @@ import Settings from './pages/Settings'
 import Docs from './pages/Docs'
 import DocsUmum from './pages/DocsUmum'
 import DocsAdvanced from './pages/DocsAdvanced'
+import DocsTutorial from './pages/DocsTutorial'
 import AutoReply from './pages/AutoReply'
 import Contacts from './pages/Contacts'
 import Groups from './pages/Groups'
@@ -107,6 +108,7 @@ function App() {
       <Route path="/docs" element={<ProtectedRoute><DocsUmum /></ProtectedRoute>} />
       <Route path="/docs/umum" element={<ProtectedRoute><DocsUmum /></ProtectedRoute>} />
       <Route path="/docs/advanced" element={<ProtectedRoute><DocsAdvanced /></ProtectedRoute>} />
+      <Route path="/docs/tutorial" element={<ProtectedRoute><DocsTutorial /></ProtectedRoute>} />
     </Routes>
   )
 }

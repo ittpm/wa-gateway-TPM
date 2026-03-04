@@ -133,19 +133,29 @@ function Layout({ children }) {
               </NavLink>
             ))}
 
-            {/* Dokumentasi API — Sub-menu */}
+            {/* Dokumentasi API & Panduan — Sub-menu */}
             <div>
               <button
                 onClick={() => setDocsOpen(prev => !prev)}
                 className="sidebar-link w-full text-left"
               >
                 <BookOpen className="w-5 h-5" />
-                <span className="flex-1">Dokumentasi API</span>
+                <span className="flex-1">Panduan & API</span>
                 <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${docsOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {docsOpen && (
                 <div className="ml-4 mt-1 space-y-0.5 border-l-2 border-gray-100 pl-3">
+                  <NavLink
+                    to="/docs/tutorial"
+                    onClick={() => setSidebarOpen(false)}
+                    className={({ isActive }) =>
+                      `flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${isActive ? 'bg-orange-50 text-orange-700 font-semibold' : 'text-gray-600 hover:bg-gray-50'}`
+                    }
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    Tutorial Fitur
+                  </NavLink>
                   <NavLink
                     to="/docs/umum"
                     onClick={() => setSidebarOpen(false)}
