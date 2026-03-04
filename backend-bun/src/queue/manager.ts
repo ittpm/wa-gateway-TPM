@@ -56,6 +56,25 @@ export class QueueManager {
       }
     });
 
+    // ─── FIX: Check scheduled messages and move to pending when due ───
+    cron.schedule('*/5 * * * * *', () => {
+      if (!this.isRunning || this.isPaused) return;
+      try {
+        // Fetch a batch of scheduled messages
+        const scheduledMessages = this.db.getMessagesByStatus('scheduled', 500);
+        const now = new Date();
+        for (const msg of scheduledMessages) {
+          if (msg.scheduledAt && msg.scheduledAt <= now) {
+            msg.status = 'pending';
+            this.db.updateMessage(msg);
+            logger.info(`[Queue] Scheduled message ${msg.id} is now due, moved to pending queue`);
+          }
+        }
+      } catch (err) {
+        logger.error('[Queue] Error checking scheduled messages:', err);
+      }
+    });
+
     // ─── FIX: Periodic guardian – rescue any 'processing' message older than 2 min ───
     this.guardianCronJob = cron.schedule('*/30 * * * * *', () => {
       if (!this.isRunning) return;
@@ -98,7 +117,8 @@ export class QueueManager {
     let scheduledAt: Date | undefined = message.scheduledAt;
 
     if (message.delayEnabled) {
-      const settings = this.db.getAntiBlockSettings();
+      const session = this.db.getSession(message.sessionId);
+      const settings = session?.userId ? this.db.getAntiBlockSettings(session.userId) : null;
       if (settings?.delayEnabled) {
         const minDelay = settings.minDelay * 1000;
         const maxDelay = settings.maxDelay * 1000;
@@ -115,7 +135,7 @@ export class QueueManager {
     const msg = this.db.createMessage({
       ...message,
       content,
-      status: 'pending',
+      status: message.status || 'pending',
       scheduledAt
     });
 
@@ -133,9 +153,10 @@ export class QueueManager {
       logger.info(`[Queue] Found ${messages.length} pending messages`);
     }
 
-    const settings = this.db.getAntiBlockSettings();
-
     for (const message of messages) {
+      const session = this.db.getSession(message.sessionId);
+      const settings = session?.userId ? this.db.getAntiBlockSettings(session.userId) : null;
+
       // 1. Check if already being processed in this instance (Race Condition Fix)
       if (this.processingMessageIds.has(message.id)) {
         continue;

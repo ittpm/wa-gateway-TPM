@@ -29,6 +29,7 @@ export class Database {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL DEFAULT 'default',
         name TEXT NOT NULL,
         phone TEXT,
         status TEXT DEFAULT 'disconnected',
@@ -51,7 +52,7 @@ export class Database {
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN me_name TEXT'); } catch { }
     // Migration: per-session API key
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN api_key TEXT UNIQUE'); } catch { }
-
+    try { this.db.exec('ALTER TABLE sessions ADD COLUMN user_id TEXT DEFAULT "default"'); } catch { }
 
     // Users table
     this.db.exec(`
@@ -97,6 +98,7 @@ export class Database {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS webhooks (
         id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL DEFAULT 'default',
         url TEXT NOT NULL,
         secret TEXT,
         events TEXT,
@@ -106,6 +108,7 @@ export class Database {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    try { this.db.exec('ALTER TABLE webhooks ADD COLUMN user_id TEXT DEFAULT "default"'); } catch { }
 
     // Webhook logs table
     this.db.exec(`
@@ -123,10 +126,10 @@ export class Database {
       )
     `);
 
-    // Anti-block settings table
+    // Anti-block settings per user
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS antiblock_settings (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
+      CREATE TABLE IF NOT EXISTS user_antiblock_settings (
+        user_id TEXT PRIMARY KEY,
         rate_limit_enabled INTEGER DEFAULT 1,
         messages_per_minute INTEGER DEFAULT 5,
         messages_per_hour INTEGER DEFAULT 50,
@@ -144,9 +147,6 @@ export class Database {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-
-    // Insert default anti-block settings
-    this.db.exec(`INSERT OR IGNORE INTO antiblock_settings (id) VALUES (1)`);
 
     // Contacts table - untuk menyimpan kontak dari WhatsApp
     this.db.exec(`
@@ -179,6 +179,7 @@ export class Database {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS templates (
         id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL DEFAULT 'default',
         name TEXT NOT NULL,
         content TEXT NOT NULL,
         variables TEXT,
@@ -193,6 +194,7 @@ export class Database {
     try { this.db.exec('ALTER TABLE templates ADD COLUMN variables TEXT'); } catch { }
     try { this.db.exec('ALTER TABLE templates ADD COLUMN category TEXT DEFAULT "general"'); } catch { }
     try { this.db.exec('ALTER TABLE templates ADD COLUMN is_active INTEGER DEFAULT 1'); } catch { }
+    try { this.db.exec('ALTER TABLE templates ADD COLUMN user_id TEXT DEFAULT "default"'); } catch { }
 
     // Auto-reply rules table
     this.db.exec(`
@@ -222,6 +224,15 @@ export class Database {
         reply_cooldown INTEGER DEFAULT 5,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Global settings key-value store
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS global_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -275,9 +286,9 @@ export class Database {
     const apiKey = session.apiKey || this.generateApiKey(session.id);
 
     this.db.run(`
-      INSERT INTO sessions (id, name, phone, status, jid, api_key, created_at, updated_at, message_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [session.id, session.name, session.phone || null, session.status, session.jid || null, apiKey, now, now, 0]);
+      INSERT INTO sessions (id, user_id, name, phone, status, jid, api_key, created_at, updated_at, message_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [session.id, session.userId, session.name, session.phone || null, session.status, session.jid || null, apiKey, now, now, 0]);
 
     return {
       ...session,
@@ -298,10 +309,18 @@ export class Database {
     return this.mapSession(row);
   }
 
-  getAllSessions(): Session[] {
+  getAllSessions(userId?: string): Session[] {
     if (!this.db) return [];
 
-    const rows = this.db.query('SELECT * FROM sessions ORDER BY created_at DESC').all() as any[];
+    let query = 'SELECT * FROM sessions';
+    const params: any[] = [];
+    if (userId) {
+      query += ' WHERE user_id = ?';
+      params.push(userId);
+    }
+    query += ' ORDER BY created_at DESC';
+
+    const rows = this.db.query(query).all(...params) as any[];
 
     return rows.map(row => this.mapSession(row));
   }
@@ -643,17 +662,25 @@ export class Database {
     const now = new Date().toISOString();
 
     this.db.run(`
-      INSERT INTO webhooks (id, url, secret, events, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [webhook.id, webhook.url, webhook.secret || null, webhook.events.join(','), webhook.status, now, now]);
+      INSERT INTO webhooks (id, user_id, url, secret, events, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [webhook.id, webhook.userId, webhook.url, webhook.secret || null, webhook.events.join(','), webhook.status, now, now]);
 
     return { ...webhook, createdAt: new Date(now), updatedAt: new Date(now) };
   }
 
-  getAllWebhooks(): Webhook[] {
+  getAllWebhooks(userId?: string): Webhook[] {
     if (!this.db) return [];
 
-    const rows = this.db.query('SELECT * FROM webhooks ORDER BY created_at DESC').all() as any[];
+    let query = 'SELECT * FROM webhooks';
+    const params: any[] = [];
+    if (userId) {
+      query += ' WHERE user_id = ?';
+      params.push(userId);
+    }
+    query += ' ORDER BY created_at DESC';
+
+    const rows = this.db.query(query).all(...params) as any[];
 
     return rows.map(row => this.mapWebhook(row));
   }
@@ -701,18 +728,24 @@ export class Database {
   }
 
   // AntiBlock settings
-  getAntiBlockSettings(): AntiBlockSettings | null {
+  getAntiBlockSettings(userId: string): AntiBlockSettings | null {
     if (!this.db) return null;
 
-    const row = this.db.query('SELECT * FROM antiblock_settings WHERE id = 1').get() as any;
+    const row = this.db.query('SELECT * FROM user_antiblock_settings WHERE user_id = ?').get(userId) as any;
 
     if (!row) return null;
 
     return this.mapAntiBlockSettings(row);
   }
 
-  updateAntiBlockSettings(settings: Partial<AntiBlockSettings>): void {
+  updateAntiBlockSettings(settings: Partial<AntiBlockSettings> & { userId: string }): void {
     if (!this.db) return;
+
+    // Ensure settings exist first
+    const existing = this.getAntiBlockSettings(settings.userId);
+    if (!existing) {
+      this.db.run(`INSERT INTO user_antiblock_settings (user_id) VALUES (?)`, [settings.userId]);
+    }
 
     const sets: string[] = [];
     const values: any[] = [];
@@ -729,10 +762,13 @@ export class Database {
     if (settings.spintaxEnabled !== undefined) { sets.push('spintax_enabled = ?'); values.push(settings.spintaxEnabled ? 1 : 0); }
     if (settings.numberFilterEnabled !== undefined) { sets.push('number_filter_enabled = ?'); values.push(settings.numberFilterEnabled ? 1 : 0); }
 
+    if (sets.length === 0) return;
+
     sets.push('updated_at = ?');
     values.push(new Date().toISOString());
+    values.push(settings.userId);
 
-    this.db.run(`UPDATE antiblock_settings SET ${sets.join(', ')} WHERE id = 1`, values);
+    this.db.run(`UPDATE user_antiblock_settings SET ${sets.join(', ')} WHERE user_id = ?`, values);
   }
 
   // Stats
@@ -767,7 +803,7 @@ export class Database {
     this.db.run(`
       INSERT INTO users (id, username, password, role, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `, [user.id, user.username, user.password, user.role, now, now]);
+    `, [user.id, user.username, user.password || '', user.role || 'user', now, now]);
   }
 
   getUserByUsername(username: string): User | null {
@@ -847,6 +883,7 @@ export class Database {
   private mapSession(row: any): Session {
     return {
       id: row.id,
+      userId: row.user_id,
       name: row.name,
       phone: row.phone,
       status: row.status,
@@ -891,10 +928,18 @@ export class Database {
 
   // Template methods
 
-  getTemplates(): Template[] {
+  getTemplates(userId?: string): Template[] {
     if (!this.db) return [];
 
-    const rows = this.db.query('SELECT * FROM templates ORDER BY name ASC').all() as any[];
+    let query = 'SELECT * FROM templates';
+    const params: any[] = [];
+    if (userId) {
+      query += ' WHERE user_id = ?';
+      params.push(userId);
+    }
+    query += ' ORDER BY name ASC';
+
+    const rows = this.db.query(query).all(...params) as any[];
 
     return rows.map(row => this.mapTemplate(row));
   }
@@ -919,6 +964,7 @@ export class Database {
   private mapTemplate(row: any): Template {
     return {
       id: row.id,
+      userId: row.user_id,
       name: row.name,
       content: row.content,
       createdAt: new Date(row.created_at),
@@ -929,6 +975,7 @@ export class Database {
   private mapWebhook(row: any): Webhook {
     return {
       id: row.id,
+      userId: row.user_id,
       url: row.url,
       secret: row.secret,
       events: row.events ? row.events.split(',') : [],
@@ -955,7 +1002,7 @@ export class Database {
 
   private mapAntiBlockSettings(row: any): AntiBlockSettings {
     return {
-      id: row.id,
+      userId: row.user_id,
       rateLimitEnabled: !!row.rate_limit_enabled,
       messagesPerMinute: row.messages_per_minute,
       messagesPerHour: row.messages_per_hour,
@@ -979,9 +1026,9 @@ export class Database {
     if (!this.db) return;
     const now = new Date().toISOString();
     this.db.run(`
-      INSERT INTO templates (id, name, content, variables, category, is_active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, [template.id, template.name, template.content,
+      INSERT INTO templates (id, user_id, name, content, variables, category, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [template.id, template.userId || 'default', template.name, template.content,
     JSON.stringify(template.variables || []),
     template.category || 'general',
     template.isActive !== false ? 1 : 0,
@@ -1103,6 +1150,36 @@ export class Database {
       replyCooldown: row.reply_cooldown,
       updatedAt: new Date(row.updated_at)
     };
+  }
+
+  // Global Settings methods
+  updateGlobalSettings(settings: Record<string, string | number | boolean>): void {
+    if (!this.db) return;
+    const now = new Date().toISOString();
+    
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO global_settings (key, value, updated_at)
+      VALUES (?, ?, ?)
+    `);
+
+    this.db.transaction(() => {
+      for (const [key, value] of Object.entries(settings)) {
+        stmt.run(key, String(value), now);
+      }
+    })();
+  }
+
+  getGlobalSettings(): Record<string, any> {
+    if (!this.db) return {};
+    const rows = this.db.query('SELECT key, value FROM global_settings').all() as { key: string, value: string }[];
+    const settings: Record<string, any> = {};
+    for (const row of rows) {
+      if (row.value === 'true') settings[row.key] = true;
+      else if (row.value === 'false') settings[row.key] = false;
+      else if (!isNaN(Number(row.value)) && row.value.trim() !== '') settings[row.key] = Number(row.value);
+      else settings[row.key] = row.value;
+    }
+    return settings;
   }
 
   // Analytics methods

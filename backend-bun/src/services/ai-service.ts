@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger.js';
+import type { Database } from '../storage/database.js';
 
 export interface AIResponse {
   content: string;
@@ -15,18 +16,21 @@ export interface AIConversation {
 }
 
 export class AIService {
-  private apiKey: string;
-  private baseURL: string;
-  private model: string;
+  private sumopodApiKey: string;
+  private sumopodModel: string;
+  private geminiApiKey: string;
+  private geminiModel: string;
 
-  constructor() {
-    this.apiKey = process.env.KIMI_API_KEY || '';
-    this.baseURL = process.env.KIMI_BASE_URL || 'https://api.moonshot.cn/v1';
-    this.model = process.env.KIMI_MODEL || 'moonshot-v1-8k';
+  constructor(db?: Database) {
+    const settings = db?.getGlobalSettings?.() || {};
+    this.sumopodApiKey = settings.sumopodApiKey || process.env.SUMOPOD_API_KEY || '';
+    this.sumopodModel = settings.sumopodModel || process.env.SUMOPOD_MODEL || 'seed-2-0-mini-free';
+    this.geminiApiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
+    this.geminiModel = settings.geminiModel || process.env.GEMINI_MODEL || 'gemini-2.0-flash';
   }
 
   isConfigured(): boolean {
-    return !!this.apiKey;
+    return !!this.sumopodApiKey || !!this.geminiApiKey;
   }
 
   async chat(
@@ -35,58 +39,130 @@ export class AIService {
     history: AIConversation[] = []
   ): Promise<AIResponse | null> {
     if (!this.isConfigured()) {
-      logger.warn('[AI] Kimi API not configured');
+      logger.warn('[AI] Neither SumoPod nor Gemini API is configured');
       return null;
     }
 
+    let response: AIResponse | null = null;
+
+    // Try SumoPod first
+    if (this.sumopodApiKey) {
+      response = await this.chatSumoPod(message, context, history);
+    }
+
+    // Fallback to Gemini if SumoPod failed or wasn't configured
+    if (!response && this.geminiApiKey) {
+      logger.info('[AI] Falling back to Gemini');
+      response = await this.chatGemini(message, context, history);
+    }
+
+    return response;
+  }
+
+  private async chatSumoPod(
+    message: string,
+    context?: string,
+    history: AIConversation[] = []
+  ): Promise<AIResponse | null> {
     try {
       const messages: AIConversation[] = [];
       
-      // System prompt
       if (context) {
-        messages.push({
-          role: 'system',
-          content: context
-        });
+        messages.push({ role: 'system', content: context });
       }
-
-      // History
+      
       messages.push(...history);
+      messages.push({ role: 'user', content: message });
 
-      // Current message
-      messages.push({
-        role: 'user',
-        content: message
-      });
-
-      const response = await fetch(`${this.baseURL}/chat/completions`, {
+      const url = 'https://ai.sumopod.com/v1/chat/completions';
+      
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          'Authorization': `Bearer ${this.sumopodApiKey}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: this.model,
+          model: this.sumopodModel,
           messages,
-          temperature: 0.7,
-          max_tokens: 1000
+          temperature: 0.3,
+          max_tokens: 2000
         })
       });
 
       if (!response.ok) {
         const error = await response.text();
-        logger.error('[AI] API error:', error);
+        logger.error(`[AI] SumoPod API error: ${response.status} - ${error}`);
         return null;
       }
 
-      const data = await response.json();
+      const data: any = await response.json();
       
-      return {
-        content: data.choices[0]?.message?.content || '',
-        usage: data.usage
-      };
+      if (data?.choices && data.choices[0]?.message?.content) {
+         return {
+          content: data.choices[0].message.content,
+          usage: data.usage
+        };
+      }
+      return null;
     } catch (error) {
-      logger.error('[AI] Error:', error);
+      logger.error('[AI] SumoPod Error:', error);
+      return null;
+    }
+  }
+
+  private async chatGemini(
+    message: string,
+    context?: string,
+    history: AIConversation[] = []
+  ): Promise<AIResponse | null> {
+    try {
+      const parts = [];
+      
+      if (context) {
+        parts.push({ text: `System Context: ${context}` });
+      }
+      
+      for (const msg of history) {
+        parts.push({ text: `${msg.role.toUpperCase()}: ${msg.content}` });
+      }
+      
+      parts.push({ text: `USER: ${message}` });
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.geminiModel}:generateContent?key=${this.geminiApiKey}`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 2000
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        logger.error(`[AI] Gemini API error: ${response.status} - ${error}`);
+        return null;
+      }
+
+      const data: any = await response.json();
+      
+      if (data?.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
+        const text = data.candidates[0].content.parts[0].text;
+        return {
+          content: text,
+          usage: undefined
+        };
+      }
+      return null;
+    } catch (error) {
+      logger.error('[AI] Gemini Error:', error);
       return null;
     }
   }

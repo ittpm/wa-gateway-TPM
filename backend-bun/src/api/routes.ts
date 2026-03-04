@@ -44,7 +44,8 @@ export function setupRoutes(
 
   // ========== SESSIONS ==========
   router.get('/sessions', (req, res) => {
-    const sessions = db.getAllSessions().map(s => {
+    const userId = (req as any).user?.id || 'default';
+    const sessions = db.getAllSessions(userId).map(s => {
       const conn = connectionManager.getSession(s.id);
       const contactsCount = db.getContactsCount(s.id);
       return {
@@ -65,9 +66,10 @@ export function setupRoutes(
   router.post('/sessions', validate(sessionSchema), async (req, res) => {
     try {
       const { name } = req.body;
+      const userId = (req as any).user?.id || 'default';
       // Validation handled by middleware
 
-      const conn = await connectionManager.createSession(name);
+      const conn = await connectionManager.createSession(name, userId);
 
       // Clear existing interval if any
       const existingInterval = qrIntervals.get(conn.id);
@@ -709,7 +711,8 @@ export function setupRoutes(
 
   // ========== TEMPLATES ==========
   router.get('/templates', (req, res) => {
-    const templates = db.getTemplates?.() || [];
+    const userId = (req as any).user?.id || 'default';
+    const templates = db.getTemplates?.(userId) || [];
     res.json(templates);
   });
 
@@ -806,9 +809,11 @@ export function setupRoutes(
   // ========== ANALYTICS ==========
   router.get('/analytics/dashboard', (req, res) => {
     try {
+      const userId = (req as any).user?.id || 'default';
+      const userSessions = db.getAllSessions?.(userId) || [];
       const summary = {
-        totalSessions: (db.getAllSessions?.() || []).length,
-        activeSessions: (db.getAllSessions?.() || []).filter(s => s.status === 'connected').length,
+        totalSessions: userSessions.length,
+        activeSessions: userSessions.filter(s => s.status === 'connected').length,
         totalMessages: db.getTotalMessagesCount?.() || 0,
         messagesToday: db.getMessagesCountToday?.() || 0,
         sessionStats: sessionPool.getStats()
@@ -848,7 +853,7 @@ export function setupRoutes(
 
       // Dynamic import to avoid loading if not needed
       const { AIService } = await import('../services/ai-service.js');
-      const ai = new AIService();
+      const ai = new AIService(db);
 
       if (!ai.isConfigured()) {
         return res.status(503).json({
@@ -873,7 +878,7 @@ export function setupRoutes(
       const { incomingMessage, businessContext, tone } = req.body;
 
       const { AIService } = await import('../services/ai-service.js');
-      const ai = new AIService();
+      const ai = new AIService(db);
 
       if (!ai.isConfigured()) {
         return res.status(503).json({
@@ -893,7 +898,8 @@ export function setupRoutes(
   router.use('/webhooks', webhookLimiter);
 
   router.get('/webhooks', (req, res) => {
-    const webhooks = db.getAllWebhooks();
+    const userId = (req as any).user?.id || 'default';
+    const webhooks = db.getAllWebhooks(userId);
     res.json(webhooks);
   });
 
@@ -905,6 +911,7 @@ export function setupRoutes(
 
       const webhook = db.createWebhook({
         id: crypto.randomUUID(),
+        userId: (req as any).user?.id || 'default',
         url,
         secret,
         events: Array.isArray(events) ? events : [events],
@@ -948,17 +955,20 @@ export function setupRoutes(
 
   // ========== ANTI-BLOCK ==========
   router.get('/antiblock/settings', (req, res) => {
-    const settings = db.getAntiBlockSettings();
+    const userId = (req as any).user?.id || 'default';
+    const settings = db.getAntiBlockSettings(userId);
     res.json(settings);
   });
 
   router.post('/antiblock/settings', (req, res) => {
-    db.updateAntiBlockSettings(req.body);
-    const settings = db.getAntiBlockSettings();
+    const userId = (req as any).user?.id || 'default';
+    db.updateAntiBlockSettings({ ...req.body, userId });
+    const settings = db.getAntiBlockSettings(userId);
     res.json(settings);
   });
 
   router.post('/antiblock/settings/reset', (req, res) => {
+    const userId = (req as any).user?.id || 'default';
     db.updateAntiBlockSettings({
       rateLimitEnabled: true,
       messagesPerMinute: 5,
@@ -973,25 +983,29 @@ export function setupRoutes(
       warmupDay1Limit: 10,
       warmupDay7Limit: 100,
       spintaxEnabled: true,
-      numberFilterEnabled: true
+      numberFilterEnabled: true,
+      userId
     });
-    const settings = db.getAntiBlockSettings();
+    const settings = db.getAntiBlockSettings(userId);
     res.json(settings);
   });
 
   // ========== TEMPLATES ==========
   router.get('/templates', (req, res) => {
-    const templates = db.getTemplates();
+    const userId = (req as any).user?.id || 'default';
+    const templates = db.getTemplates(userId);
     res.json(templates);
   });
 
   router.post('/templates', validate(templateSchema), (req, res) => {
     try {
       const { name, content } = req.body;
+      const userId = (req as any).user?.id || 'default';
       // Validation handled by middleware
 
       const template = db.createTemplate({
         id: crypto.randomUUID(),
+        userId,
         name,
         content
       });
@@ -1129,6 +1143,43 @@ export function setupRoutes(
     }
   });
 
+  // ========== GLOBAL SETTINGS ==========
+  router.get('/settings', (req: any, res) => {
+    try {
+      if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) {
+         return res.status(403).json({ error: 'Require explicit admin access' });
+      }
+      const settings = db.getGlobalSettings?.();
+      res.json(settings || {});
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/settings', (req: any, res) => {
+    try {
+      if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) {
+         return res.status(403).json({ error: 'Require explicit admin access' });
+      }
+
+      const newSettings = { ...req.body };
+      
+      // Khusus superadmin: izinkan ubah token AI
+      // Jika bukan superadmin, hapus field AI dari request agar tidak tertimpa
+      if (req.user.role !== 'superadmin') {
+        delete newSettings.sumopodApiKey;
+        delete newSettings.sumopodModel;
+        delete newSettings.geminiApiKey;
+        delete newSettings.geminiModel;
+      }
+
+      db.updateGlobalSettings?.(newSettings);
+      res.json({ message: 'Global settings updated successfully' });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ========== API INFO / DOCS ==========
   router.get('/', (req, res) => {
     res.json({
@@ -1182,12 +1233,6 @@ export function setupRoutes(
           'POST /api/v1/ai/chat': 'Chat dengan AI Kimi',
           'POST /api/v1/ai/generate-reply': 'Generate reply otomatis dengan AI'
         },
-        templates: {
-          'GET /api/v1/templates': 'List templates',
-          'POST /api/v1/templates': 'Create template',
-          'PUT /api/v1/templates/:id': 'Update template',
-          'DELETE /api/v1/templates/:id': 'Delete template'
-        },
         queue: {
           'GET /api/v1/queue': 'Lihat antrean',
           'GET /api/v1/queue/stats': 'Statistik antrean',
@@ -1210,6 +1255,10 @@ export function setupRoutes(
         antiblock: {
           'GET /api/v1/antiblock/settings': 'Pengaturan anti-block',
           'POST /api/v1/antiblock/settings': 'Update pengaturan'
+        },
+        settings: {
+          'GET /api/v1/settings': 'Ambil semua pengaturan global',
+          'POST /api/v1/settings': 'Update pengaturan global (Superadmin only)'
         }
       },
       antiBlockFeatures: {

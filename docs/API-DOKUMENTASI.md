@@ -8,7 +8,7 @@
 
 ```
 Development : http://localhost:9090/api/v1
-Production  : https://your-domain.com/api/v1
+Production  : https://watpm.tpm.co.id/api/v1
 Health Check: GET /health
 Docs UI     : GET /docs
 ```

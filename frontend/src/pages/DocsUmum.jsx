@@ -127,7 +127,7 @@ function DocsUmum() {
             {/* Base URL */}
             <div className="bg-gradient-to-r from-whatsapp-600 to-whatsapp-700 rounded-xl p-4 text-white">
                 <p className="text-sm font-semibold mb-1 opacity-80 flex items-center gap-1"><Code className="w-4 h-4" /> Base URL</p>
-                <code className="text-lg font-mono">http://localhost:8080/api/v1</code>
+                <code className="text-lg font-mono">https://watpm.tpm.co.id/api/v1</code>
                 <p className="text-xs opacity-70 mt-1">Ganti dengan domain production Anda saat deploy</p>
             </div>
 
@@ -248,7 +248,7 @@ X-API-Key: wak_abc123_...
 
                         <h4 className="font-semibold text-gray-800 mb-2">Contoh dengan berbagai bahasa:</h4>
                         <CodeBlock code={`# cURL
-curl -H "X-API-Key: wak_abc123_xxx" http://localhost:8080/api/v1/sessions
+curl -H "X-API-Key: wak_abc123_xxx" https://watpm.tpm.co.id/api/v1/sessions
 
 # JavaScript / fetch
 fetch('/api/v1/sessions', {
@@ -258,7 +258,7 @@ fetch('/api/v1/sessions', {
 # Python
 import requests
 headers = {'X-API-Key': 'wak_abc123_xxx'}
-requests.get('http://localhost:8080/api/v1/sessions', headers=headers)
+requests.get('https://watpm.tpm.co.id/api/v1/sessions', headers=headers)
 
 # PHP
 $ch = curl_init();

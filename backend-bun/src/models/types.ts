@@ -1,5 +1,6 @@
 export interface Session {
   id: string;
+  userId: string;
   name: string;
   phone?: string;
   status: 'connected' | 'disconnected' | 'connecting' | 'qr';
@@ -28,7 +29,7 @@ export interface Message {
   longitude?: number;
   contactName?: string;
   contactPhone?: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'scheduled';
   attempts: number;
   error?: string;
   messageId?: string;
@@ -41,6 +42,7 @@ export interface Message {
 
 export interface Webhook {
   id: string;
+  userId: string;
   url: string;
   secret?: string;
   events: string[];
@@ -63,7 +65,7 @@ export interface WebhookLog {
 }
 
 export interface AntiBlockSettings {
-  id: number;
+  userId: string;
   rateLimitEnabled: boolean;
   messagesPerMinute: number;
   messagesPerHour: number;
@@ -116,8 +118,12 @@ export interface IncomingMessage {
 
 export interface Template {
   id: string;
+  userId: string;
   name: string;
   content: string;
+  variables?: string[];
+  category?: string;
+  isActive?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

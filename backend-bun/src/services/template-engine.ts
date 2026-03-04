@@ -103,7 +103,7 @@ export class TemplateEngine {
   // Get template by ID
   getTemplate(id: string): MessageTemplate | null {
     try {
-      return this.db.getTemplate?.(id) || null;
+      return (this.db.getTemplate?.(id) as unknown as MessageTemplate) || null;
     } catch (error) {
       logger.error('[Template] Error getting template:', error);
       return null;
@@ -113,7 +113,7 @@ export class TemplateEngine {
   // Get all templates
   getTemplates(category?: string): MessageTemplate[] {
     try {
-      let templates = this.db.getTemplates?.() || [];
+      let templates = (this.db.getTemplates?.() as unknown as MessageTemplate[]) || [];
       
       if (category) {
         templates = templates.filter(t => t.category === category);

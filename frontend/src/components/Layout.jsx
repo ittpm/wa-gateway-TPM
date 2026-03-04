@@ -21,7 +21,8 @@ import {
   Calendar,
   ChevronDown,
   BookMarked,
-  Clock
+  Clock,
+  Bot
 } from 'lucide-react'
 import { api } from '../services/api'
 import toast from 'react-hot-toast'
@@ -36,6 +37,7 @@ const allMenuItems = [
   { path: '/send', icon: Send, label: 'Kirim Pesan' },
   { path: '/queue', icon: ListOrdered, label: 'Antrean' },
   { path: '/scheduled', icon: Calendar, label: 'Pesan Terjadwal' },
+  { path: '/autoreply', icon: Bot, label: 'Auto-Reply & AI' },
   { path: '/webhooks', icon: Webhook, label: 'Webhooks' },
   { path: '/antiblock', icon: Shield, label: 'Anti-Block' },
   { path: '/settings', icon: Settings, label: 'Pengaturan', superadminOnly: true },

@@ -123,7 +123,7 @@ function DocsAdvanced() {
             {/* Base URL */}
             <div className="bg-gray-900 rounded-xl p-4 text-white">
                 <p className="text-xs text-gray-400 mb-1 flex items-center gap-1"><Code className="w-3 h-3" /> Base URL</p>
-                <code className="text-green-400 font-mono">http://localhost:8080/api/v1</code>
+                <code className="text-green-400 font-mono">https://watpm.tpm.co.id/api/v1</code>
                 <span className="mx-3 text-gray-600">|</span>
                 <code className="text-blue-400 font-mono">X-API-Key: wak_xxx...</code>
             </div>
@@ -606,7 +606,7 @@ file        = [BINARY: gambar/dokumen, max 5MB]`}
                             <div>
                                 <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2"><Terminal className="w-4 h-4" /> cURL</h4>
                                 <CodeBlock code={`# Kirim pesan
-curl -X POST http://localhost:8080/api/v1/messages/send \\
+curl -X POST https://watpm.tpm.co.id/api/v1/messages/send \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: wak_abc123_xxx" \\
   -d '{
@@ -617,7 +617,7 @@ curl -X POST http://localhost:8080/api/v1/messages/send \\
   }'
 
 # Upload file + jadwalkan
-curl -X POST http://localhost:8080/api/v1/messages/upload-scheduled \\
+curl -X POST https://watpm.tpm.co.id/api/v1/messages/upload-scheduled \\
   -H "X-API-Key: wak_abc123_xxx" \\
   -F "sessionId=uuid-session" \\
   -F "to=6281234567890" \\
@@ -631,7 +631,7 @@ curl -X POST http://localhost:8080/api/v1/messages/upload-scheduled \\
                                 <CodeBlock code={`const axios = require('axios');
 
 const api = axios.create({
-  baseURL: 'http://localhost:8080/api/v1',
+  baseURL: 'https://watpm.tpm.co.id/api/v1',
   headers: { 'X-API-Key': 'wak_abc123_xxx' }
 });
 
@@ -670,7 +670,7 @@ async function checkStatus(sessionId) {
                                 <h4 className="font-semibold text-gray-800 mb-2">PHP</h4>
                                 <CodeBlock code={`<?php
 $apiKey = 'wak_abc123_xxx';
-$baseUrl = 'http://localhost:8080/api/v1';
+$baseUrl = 'https://watpm.tpm.co.id/api/v1';
 
 // Kirim pesan
 function sendMessage($to, $message) {
@@ -700,7 +700,7 @@ echo json_encode(sendMessage('6281234567890', 'Halo dari PHP!'));`} />
                                 <CodeBlock code={`import requests
 
 API_KEY = 'wak_abc123_xxx'
-BASE_URL = 'http://localhost:8080/api/v1'
+BASE_URL = 'https://watpm.tpm.co.id/api/v1'
 headers = {'X-API-Key': API_KEY}
 
 # Kirim pesan

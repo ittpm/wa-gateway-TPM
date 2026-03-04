@@ -413,7 +413,7 @@ sudo nano /etc/nginx/sites-available/wa-gateway
 ```nginx
 server {
     listen 80;
-    server_name your-domain.com;
+    server_name watpm.tpm.co.id;
 
     location / {
         proxy_pass http://localhost:9000;
@@ -445,7 +445,7 @@ sudo systemctl restart nginx
 
 ```bash
 sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
+sudo certbot --nginx -d watpm.tpm.co.id
 sudo systemctl reload nginx
 ```
 

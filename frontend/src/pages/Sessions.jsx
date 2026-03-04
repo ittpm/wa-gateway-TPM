@@ -229,7 +229,7 @@ function Sessions() {
 
   const copyCodeExample = (sessionId, token) => {
     const code = `# Contoh penggunaan API
-curl -X POST http://localhost:8080/api/v1/messages/send \\
+curl -X POST https://watpm.tpm.co.id/api/v1/messages/send \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ${token}" \\
   -d '{

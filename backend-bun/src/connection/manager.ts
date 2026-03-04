@@ -7,6 +7,64 @@ import { logger } from '../utils/logger.js';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { basename } from 'path';
+import { URL } from 'url';
+import dns from 'dns';
+import { promisify } from 'util';
+
+const dnsLookup = promisify(dns.lookup);
+
+/**
+ * SSRF Protection: Validate that a URL is not pointing to an internal/private network.
+ * Blocks requests to: localhost, 10.x.x.x, 172.16-31.x.x, 192.168.x.x,
+ * 169.254.x.x (link-local / AWS metadata), 127.x.x.x, and IPv6 equivalents.
+ */
+async function validatePublicUrl(rawUrl: string): Promise<void> {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid URL: ${rawUrl}`);
+  }
+
+  const protocol = parsedUrl.protocol;
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    throw new Error(`URL protocol not allowed: ${protocol}`);
+  }
+
+  const hostname = parsedUrl.hostname;
+
+  // Block hardcoded private hostnames
+  const blockedPatterns = [
+    /^localhost$/i,
+    /^127\./,
+    /^10\./,
+    /^172\.(1[6-9]|2[0-9]|3[01])\./,
+    /^192\.168\./,
+    /^169\.254\./,     // Link-local / AWS metadata
+    /^::1$/,           // IPv6 loopback
+    /^fc00:/i,         // IPv6 private
+    /^fe80:/i,         // IPv6 link-local
+  ];
+
+  for (const pattern of blockedPatterns) {
+    if (pattern.test(hostname)) {
+      throw new Error(`SSRF Blocked: URL points to private network (${hostname})`);
+    }
+  }
+
+  // Resolve hostname to IP and validate again (prevents DNS rebinding)
+  try {
+    const { address } = await dnsLookup(hostname);
+    for (const pattern of blockedPatterns) {
+      if (pattern.test(address)) {
+        throw new Error(`SSRF Blocked: Resolved IP is private (${address})`);
+      }
+    }
+  } catch (err: any) {
+    if (err.message.startsWith('SSRF Blocked')) throw err;
+    throw new Error(`Could not resolve hostname: ${hostname}`);
+  }
+}
 
 interface SessionConnection {
   id: string;
@@ -226,7 +284,7 @@ export class ConnectionManager {
 
       try {
         // Try to restore session dengan locking
-        await this.restoreSessionWithLock(session.id, session.name);
+        await this.restoreSessionWithLock(session.id, session.name, session.userId);
       } catch (error) {
         logger.error(`[ConnectionManager] Failed to restore session ${session.id}:`, error);
       }
@@ -350,7 +408,7 @@ export class ConnectionManager {
   /**
    * Restore session dengan locking untuk mencegah concurrent restore
    */
-  private async restoreSessionWithLock(sessionId: string, sessionName: string): Promise<void> {
+  private async restoreSessionWithLock(sessionId: string, sessionName: string, userId: string): Promise<void> {
     // Check if restore already in progress
     if (this.restoreInProgress.get(sessionId)) {
       logger.info(`[Session ${sessionId}] Restore already in progress, waiting...`);
@@ -367,7 +425,7 @@ export class ConnectionManager {
     }
 
     // Create restore promise
-    const restorePromise = this.restoreSessionInternal(sessionId, sessionName);
+    const restorePromise = this.restoreSessionInternal(sessionId, sessionName, userId);
     this.restoreQueue.set(sessionId, restorePromise);
 
     try {
@@ -381,7 +439,7 @@ export class ConnectionManager {
   /**
    * Internal restore session implementation
    */
-  private async restoreSessionInternal(sessionId: string, sessionName: string): Promise<void> {
+  private async restoreSessionInternal(sessionId: string, sessionName: string, userId: string): Promise<void> {
     this.restoreInProgress.set(sessionId, true);
 
     try {
@@ -403,7 +461,7 @@ export class ConnectionManager {
       } else {
         // Create new session
         logger.info(`[Session ${sessionId}] Creating new session connection...`);
-        await this.createSession(sessionName, sessionId);
+        await this.createSession(sessionName, userId, sessionId);
       }
     } catch (error: any) {
       logger.error(`[Session ${sessionId}] Failed to restore session:`, error.message);
@@ -415,8 +473,8 @@ export class ConnectionManager {
    * Restore session saat server restart
    * @deprecated Use restoreSessionWithLock instead
    */
-  private async restoreSession(sessionId: string, sessionName: string): Promise<void> {
-    return this.restoreSessionWithLock(sessionId, sessionName);
+  private async restoreSession(sessionId: string, sessionName: string, userId: string): Promise<void> {
+    return this.restoreSessionWithLock(sessionId, sessionName, userId);
   }
 
   /**
@@ -502,7 +560,7 @@ export class ConnectionManager {
     this.messageStatusHandler = handler;
   }
 
-  async createSession(name: string, existingId?: string): Promise<SessionConnection> {
+  async createSession(name: string, userId: string, existingId?: string): Promise<SessionConnection> {
     const id = existingId || crypto.randomUUID();
     const token = this.generateToken();
 
@@ -525,9 +583,11 @@ export class ConnectionManager {
       // Create new session
       session = this.db.createSession({
         id,
+        userId,
         name,
         status: 'connecting',
-        token
+        token,
+        messageCount: 0
       });
     }
 
@@ -1273,14 +1333,17 @@ export class ConnectionManager {
         }
 
         // Wrap sendMessage dengan timeout untuk mencegah hanging
+        let timeoutId: NodeJS.Timeout;
         const sendWithTimeout = Promise.race([
           session.sock.sendMessage(jid, content),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Send message timeout after 30s')), SEND_TIMEOUT)
-          )
+          new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('Send message timeout after 30s')), SEND_TIMEOUT);
+          })
         ]);
 
-        return await sendWithTimeout;
+        const result = await sendWithTimeout;
+        clearTimeout(timeoutId!);
+        return result;
       } catch (error: any) {
         lastError = error;
 
@@ -1440,13 +1503,16 @@ export class ConnectionManager {
     logger.info(`[Connection] Sending image message: session=${sessionId}, to=${to}, url=${imageUrl}`);
 
     try {
+      // SSRF Protection: validate URL before fetch
+      await validatePublicUrl(imageUrl);
+
       const response = await fetch(imageUrl);
       const buffer = Buffer.from(await response.arrayBuffer());
 
       const result = await this.whatsapp.sendImage({
         sessionId,
         to,
-        image: buffer,
+        media: buffer,
         caption: caption || ''
       });
 

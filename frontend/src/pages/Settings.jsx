@@ -17,7 +17,8 @@ import {
   Crown,
   UserCheck,
   X,
-  Edit2
+  Edit2,
+  Bot
 } from 'lucide-react'
 import { api } from '../services/api'
 
@@ -32,9 +33,14 @@ function SettingsPage() {
     redisUrl: 'redis://localhost:6379',
     webhookRetries: 3,
     webhookTimeout: 30000,
+    sumopodApiKey: '',
+    sumopodModel: 'seed-2-0-mini-free',
+    geminiApiKey: '',
+    geminiModel: 'gemini-2.0-flash'
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [activeAiTab, setActiveAiTab] = useState('sumopod')
 
   // User Management State
   const [users, setUsers] = useState([])
@@ -271,6 +277,79 @@ function SettingsPage() {
                 onChange={(e) => setSettings({ ...settings, webhookTimeout: parseInt(e.target.value) })}
                 className="input-field w-32" />
             </div>
+          </div>
+        </SectionCard>
+
+        {/* AI Settings */}
+        <SectionCard title="Kecerdasan Buatan (AI) - Auto Reply" icon={Bot}>
+          <div className="space-y-4">
+            
+            {/* Tabs Trigger */}
+            <div className="flex bg-gray-100 p-1 rounded-lg">
+              <button
+                onClick={() => setActiveAiTab('sumopod')}
+                className={`flex-1 py-1.5 px-3 text-sm font-medium rounded-md transition-colors ${
+                  activeAiTab === 'sumopod'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                🏅 Utama (SumoPod)
+              </button>
+              <button
+                onClick={() => setActiveAiTab('gemini')}
+                className={`flex-1 py-1.5 px-3 text-sm font-medium rounded-md transition-colors ${
+                  activeAiTab === 'gemini'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                🛡️ Cadangan (Gemini)
+              </button>
+            </div>
+
+            {/* SumoPod */}
+            {activeAiTab === 'sumopod' && (
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 animate-in fade-in">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                    <input type="password" value={settings.sumopodApiKey || ''}
+                      onChange={(e) => setSettings({ ...settings, sumopodApiKey: e.target.value })}
+                      className="input-field" placeholder="sk-..." />
+                    <p className="text-xs text-gray-500 mt-1">Provider AI utama karena lebih murah dan context lebih besar.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Model AI</label>
+                    <input type="text" value={settings.sumopodModel || ''}
+                      onChange={(e) => setSettings({ ...settings, sumopodModel: e.target.value })}
+                      className="input-field" placeholder="seed-2-0-mini-free" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Gemini */}
+            {activeAiTab === 'gemini' && (
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 animate-in fade-in">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                    <input type="password" value={settings.geminiApiKey || ''}
+                      onChange={(e) => setSettings({ ...settings, geminiApiKey: e.target.value })}
+                      className="input-field" placeholder="AlzaSy..." />
+                    <p className="text-xs text-gray-500 mt-1">Akan otomatis digunakan jika SumoPod gagal atau sedang offline.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Model AI</label>
+                    <input type="text" value={settings.geminiModel || ''}
+                      onChange={(e) => setSettings({ ...settings, geminiModel: e.target.value })}
+                      className="input-field" placeholder="gemini-2.0-flash" />
+                  </div>
+                </div>
+              </div>
+            )}
+            
           </div>
         </SectionCard>
       </div>

@@ -12,6 +12,7 @@ import Settings from './pages/Settings'
 import Docs from './pages/Docs'
 import DocsUmum from './pages/DocsUmum'
 import DocsAdvanced from './pages/DocsAdvanced'
+import AutoReply from './pages/AutoReply'
 import Contacts from './pages/Contacts'
 import Groups from './pages/Groups'
 import Templates from './pages/Templates'
@@ -90,6 +91,7 @@ function App() {
       <Route path="/send" element={<ProtectedRoute><SendMessage /></ProtectedRoute>} />
       <Route path="/queue" element={<ProtectedRoute><Queue /></ProtectedRoute>} />
       <Route path="/scheduled" element={<ProtectedRoute><ScheduledMessages /></ProtectedRoute>} />
+      <Route path="/autoreply" element={<ProtectedRoute><AutoReply /></ProtectedRoute>} />
       <Route path="/webhooks" element={<ProtectedRoute><Webhooks /></ProtectedRoute>} />
       <Route path="/antiblock" element={<ProtectedRoute><AntiBlock /></ProtectedRoute>} />
       <Route
