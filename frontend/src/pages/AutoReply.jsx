@@ -247,14 +247,23 @@ export default function AutoReply() {
                                 <h4 className="text-sm font-semibold text-gray-900">Aktifkan Auto-Reply</h4>
                                 <p className="text-xs text-gray-500">Nyalakan fitur mesin pembalas</p>
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => setSettings({ ...settings, autoReplyEnabled: !settings.autoReplyEnabled })}
-                                className={`\${settings.autoReplyEnabled ? 'text-whatsapp-500' : 'text-gray-300'} transition-colors`}
-                                disabled={!selectedSessionId}
-                            >
-                                {settings.autoReplyEnabled ? <ToggleRight className="w-10 h-10" /> : <ToggleLeft className="w-10 h-10" />}
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                    settings.autoReplyEnabled
+                                        ? 'bg-green-100 text-green-700'
+                                        : 'bg-red-100 text-red-600'
+                                }`}>
+                                    {settings.autoReplyEnabled ? '● Aktif' : '● Tidak Aktif'}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setSettings({ ...settings, autoReplyEnabled: !settings.autoReplyEnabled })}
+                                    className={`${settings.autoReplyEnabled ? 'text-green-500' : 'text-red-400'} transition-colors`}
+                                    disabled={!selectedSessionId}
+                                >
+                                    {settings.autoReplyEnabled ? <ToggleRight className="w-10 h-10" /> : <ToggleLeft className="w-10 h-10" />}
+                                </button>
+                            </div>
                         </div>
 
                         {/* Cooldown */}
@@ -280,14 +289,23 @@ export default function AutoReply() {
                                 <h4 className="text-sm font-semibold text-gray-900">Fallback/Tolak Nomor Asing</h4>
                                 <p className="text-xs text-gray-500 mt-0.5">Otomatis balas pesan dari nomor yang belum tersimpan di kontak Anda.</p>
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => setSettings({ ...settings, autoRejectUnknown: !settings.autoRejectUnknown })}
-                                className={`\${settings.autoRejectUnknown ? 'text-red-500' : 'text-gray-300'} transition-colors`}
-                                disabled={!selectedSessionId}
-                            >
-                                {settings.autoRejectUnknown ? <ToggleRight className="w-10 h-10" /> : <ToggleLeft className="w-10 h-10" />}
-                            </button>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                    settings.autoRejectUnknown
+                                        ? 'bg-green-100 text-green-700'
+                                        : 'bg-red-100 text-red-600'
+                                }`}>
+                                    {settings.autoRejectUnknown ? '● Aktif' : '● Tidak Aktif'}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setSettings({ ...settings, autoRejectUnknown: !settings.autoRejectUnknown })}
+                                    className={`${settings.autoRejectUnknown ? 'text-green-500' : 'text-red-400'} transition-colors`}
+                                    disabled={!selectedSessionId}
+                                >
+                                    {settings.autoRejectUnknown ? <ToggleRight className="w-10 h-10" /> : <ToggleLeft className="w-10 h-10" />}
+                                </button>
+                            </div>
                         </div>
 
                         {settings.autoRejectUnknown && (
@@ -377,9 +395,16 @@ export default function AutoReply() {
                                                 )}
                                             </td>
                                             <td className="px-5 py-3 text-center">
-                                                <button onClick={() => toggleRuleStatus(rule)} className={`\${rule.isActive ? 'text-green-500' : 'text-gray-300'}`}>
-                                                    {rule.isActive ? <ToggleRight className="w-8 h-8 mx-auto" /> : <ToggleLeft className="w-8 h-8 mx-auto" />}
-                                                </button>
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <button onClick={() => toggleRuleStatus(rule)} className={`${rule.isActive ? 'text-green-500' : 'text-red-400'} transition-colors`}>
+                                                        {rule.isActive ? <ToggleRight className="w-8 h-8 mx-auto" /> : <ToggleLeft className="w-8 h-8 mx-auto" />}
+                                                    </button>
+                                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                                                        rule.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
+                                                    }`}>
+                                                        {rule.isActive ? 'Aktif' : 'Nonaktif'}
+                                                    </span>
+                                                </div>
                                             </td>
                                             <td className="px-5 py-3 text-right">
                                                 <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -450,22 +475,31 @@ export default function AutoReply() {
                                 </div>
                             </div>
 
-                            <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-4">
+                            <div className={`border rounded-xl p-4 space-y-4 transition-colors ${formData.useAI ? 'border-blue-200 bg-blue-50/30' : 'border-gray-200 bg-gray-50'}`}>
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                                            <Sparkles className="w-4 h-4 text-blue-500" />
+                                            <Sparkles className={`w-4 h-4 ${formData.useAI ? 'text-blue-500' : 'text-gray-400'}`} />
                                             Gunakan AI Assistant (Kimi)
                                         </h4>
                                         <p className="text-xs text-gray-500 mt-0.5">Berikan instruksi (prompt) dan biarkan AI menjawab secara dinamis.</p>
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setFormData({ ...formData, useAI: !formData.useAI, replyMessage: '', aiPrompt: '' })}
-                                        className={`\${formData.useAI ? 'text-blue-500' : 'text-gray-300'} transition-colors`}
-                                    >
-                                        {formData.useAI ? <ToggleRight className="w-10 h-10" /> : <ToggleLeft className="w-10 h-10" />}
-                                    </button>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                            formData.useAI
+                                                ? 'bg-green-100 text-green-700'
+                                                : 'bg-red-100 text-red-600'
+                                        }`}>
+                                            {formData.useAI ? '● Aktif' : '● Tidak Aktif'}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, useAI: !formData.useAI, replyMessage: '', aiPrompt: '' })}
+                                            className={`${formData.useAI ? 'text-green-500' : 'text-red-400'} transition-colors`}
+                                        >
+                                            {formData.useAI ? <ToggleRight className="w-10 h-10" /> : <ToggleLeft className="w-10 h-10" />}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {formData.useAI ? (
