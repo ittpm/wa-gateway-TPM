@@ -49,7 +49,9 @@ function AntiBlock() {
   const fetchSettings = async () => {
     try {
       const response = await api.get('/antiblock/settings')
-      setSettings(response.data)
+      if (response.data) {
+        setSettings(response.data)
+      }
     } catch (error) {
       console.error('Failed to fetch settings:', error)
     } finally {

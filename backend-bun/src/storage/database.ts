@@ -727,15 +727,39 @@ export class Database {
     return rows.map(row => this.mapWebhookLog(row));
   }
 
-  // AntiBlock settings
-  getAntiBlockSettings(userId: string): AntiBlockSettings | null {
-    if (!this.db) return null;
+  getAntiBlockSettings(userId: string): AntiBlockSettings {
+    if (!this.db) {
+      return this.getDefaultAntiBlockSettings(userId);
+    }
 
     const row = this.db.query('SELECT * FROM user_antiblock_settings WHERE user_id = ?').get(userId) as any;
 
-    if (!row) return null;
+    if (!row) {
+      return this.getDefaultAntiBlockSettings(userId);
+    }
 
     return this.mapAntiBlockSettings(row);
+  }
+
+  private getDefaultAntiBlockSettings(userId: string): AntiBlockSettings {
+    return {
+      userId,
+      rateLimitEnabled: true,
+      messagesPerMinute: 5,
+      messagesPerHour: 50,
+      burstLimit: 10,
+      delayEnabled: true,
+      minDelay: 1,
+      maxDelay: 5,
+      baseDelay: 2,
+      warmupEnabled: true,
+      warmupDays: 7,
+      warmupDay1Limit: 10,
+      warmupDay7Limit: 100,
+      spintaxEnabled: true,
+      numberFilterEnabled: true,
+      updatedAt: new Date()
+    };
   }
 
   updateAntiBlockSettings(settings: Partial<AntiBlockSettings> & { userId: string }): void {

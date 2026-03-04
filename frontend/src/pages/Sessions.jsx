@@ -87,7 +87,10 @@ function Sessions() {
       }, 1000)
 
     } catch (error) {
-      toast.error('Gagal membuat session')
+      const errDetail = error.response?.data?.details?.[0]?.message
+        || error.response?.data?.error
+        || 'Gagal membuat session'
+      toast.error(errDetail)
     }
   }
 

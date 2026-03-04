@@ -59,8 +59,9 @@ export const webhookSchema = z.object({
 
 export const sessionSchema = z.object({
     name: z.string()
-        .min(1, 'Session name is required')
-        .regex(/^[a-zA-Z0-9-]+$/, 'Session name must be alphanumeric and hyphens only')
+        .min(1, 'Nama session tidak boleh kosong')
+        .max(50, 'Nama session maksimal 50 karakter')
+        .regex(/^[a-zA-Z0-9\s\-_]+$/, 'Nama session hanya boleh huruf, angka, spasi, underscore, dan tanda hubung')
 });
 
 // Middleware
