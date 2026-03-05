@@ -44,7 +44,9 @@ export function setupRoutes(
 
   // ========== SESSIONS ==========
   router.get('/sessions', (req, res) => {
-    const userId = (req as any).user?.id || 'default';
+    const isAdmin = (req as any).user?.role === 'admin';
+    const userId = isAdmin ? (req as any).user.id : undefined;
+    
     const sessions = db.getAllSessions(userId).map(s => {
       const conn = connectionManager.getSession(s.id);
       const contactsCount = db.getContactsCount(s.id);
@@ -970,16 +972,42 @@ export function setupRoutes(
   });
 
   router.get('/stats/activity', (req, res) => {
-    const data = [];
-    for (let i = 0; i < 24; i++) {
-      data.push({
-        time: `${i}:00`,
-        sent: Math.floor(Math.random() * 100),
-        delivered: Math.floor(Math.random() * 90),
-        failed: Math.floor(Math.random() * 10)
+    try {
+      const isAdmin = (req as any).user?.role === 'admin';
+      const userId = isAdmin ? (req as any).user.id : undefined;
+
+      // Get real hourly activity from DB
+      const activity = db.getHourlyActivity?.(undefined, 24, userId) || [];
+      
+      // Map to the format expected by the frontend
+      const data = activity.map(a => {
+        // hour is in format YYYY-MM-DDTHH
+        const dateObj = new Date(a.hour + ':00:00Z');
+        const hourStr = dateObj.getHours().toString().padStart(2, '0');
+        
+        return {
+          time: `${hourStr}:00`,
+          sent: a.sent + a.failed, // sent attempts
+          delivered: a.sent,       // successful
+          failed: a.failed
+        };
       });
+
+      // If no data, provide an empty skeleton
+      if (data.length === 0) {
+         for (let i = 0; i < 24; i++) {
+           data.push({
+             time: `${i}:00`,
+             sent: 0,
+             delivered: 0,
+             failed: 0
+           });
+         }
+      }
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
-    res.json(data);
   });
 
   // ========== ANTI-BLOCK ==========
