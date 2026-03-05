@@ -605,6 +605,7 @@ export class Database {
     limit?: number;
     offset?: number;
     search?: string;
+    userId?: string;
   }): { messages: Message[]; total: number } {
     if (!this.db) return { messages: [], total: 0 };
 
@@ -612,6 +613,13 @@ export class Database {
     let countQuery = 'SELECT COUNT(*) as count FROM messages WHERE 1=1';
     const params: any[] = [];
     const countParams: any[] = [];
+
+    if (filters.userId) {
+      query += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = ?)';
+      countQuery += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = ?)';
+      params.push(filters.userId);
+      countParams.push(filters.userId);
+    }
 
     if (filters.sessionId) {
       query += ' AND session_id = ?';
@@ -1219,12 +1227,17 @@ export class Database {
     `, [sessionId, hour, sent, failed]);
   }
 
-  getHourlyActivity(sessionId?: string, hours: number = 24): any[] {
+  getHourlyActivity(sessionId?: string, hours: number = 24, userId?: string): any[] {
     if (!this.db) return [];
     const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString().slice(0, 13);
 
     let query = 'SELECT hour, SUM(sent) as sent, SUM(failed) as failed FROM analytics_hourly WHERE hour >= ?';
     const params: any[] = [since];
+
+    if (userId) {
+      query += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = ?)';
+      params.push(userId);
+    }
 
     if (sessionId) {
       query += ' AND session_id = ?';
@@ -1241,28 +1254,45 @@ export class Database {
     }));
   }
 
-  getTotalMessagesCount(): number {
+  getTotalMessagesCount(userId?: string): number {
     if (!this.db) return 0;
+    if (userId) {
+      const result = this.db.query('SELECT COUNT(*) as count FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE user_id = ?)').get(userId) as any;
+      return result?.count || 0;
+    }
     const result = this.db.query('SELECT COUNT(*) as count FROM messages').get() as any;
     return result?.count || 0;
   }
 
-  getMessagesCountToday(): number {
+  getMessagesCountToday(userId?: string): number {
     if (!this.db) return 0;
     const today = new Date().toISOString().split('T')[0];
+    
+    if (userId) {
+      const result = this.db.query(
+        "SELECT COUNT(*) as count FROM messages WHERE DATE(created_at) = ? AND session_id IN (SELECT id FROM sessions WHERE user_id = ?)"
+      ).get(today, userId) as any;
+      return result?.count || 0;
+    }
+
     const result = this.db.query(
       "SELECT COUNT(*) as count FROM messages WHERE DATE(created_at) = ?"
     ).get(today) as any;
     return result?.count || 0;
   }
 
-  getMessageStats(sessionId?: string, days: number = 7): any {
+  getMessageStats(sessionId?: string, days: number = 7, userId?: string): any {
     if (!this.db) return { total: 0, pending: 0, processing: 0, completed: 0, failed: 0, bySession: {}, byDate: {} };
 
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
     let whereClause = 'WHERE created_at >= ?';
     const params: any[] = [since];
+
+    if (userId) {
+      whereClause += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = ?)';
+      params.push(userId);
+    }
 
     if (sessionId) {
       whereClause += ' AND session_id = ?';

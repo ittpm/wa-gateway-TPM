@@ -480,7 +480,8 @@ export function setupRoutes(
         status: status as string,
         search: search as string,
         limit: limitNum,
-        offset
+        offset,
+        userId: (req as any).user?.role === 'admin' ? (req as any).user.id : undefined
       });
 
       res.json({
@@ -810,12 +811,15 @@ export function setupRoutes(
   router.get('/analytics/dashboard', (req, res) => {
     try {
       const userId = (req as any).user?.id || 'default';
-      const userSessions = db.getAllSessions?.(userId) || [];
+      const isAdmin = (req as any).user?.role === 'admin';
+      const queryUserId = isAdmin ? userId : undefined;
+
+      const userSessions = db.getAllSessions?.(queryUserId) || [];
       const summary = {
         totalSessions: userSessions.length,
         activeSessions: userSessions.filter(s => s.status === 'connected').length,
-        totalMessages: db.getTotalMessagesCount?.() || 0,
-        messagesToday: db.getMessagesCountToday?.() || 0,
+        totalMessages: db.getTotalMessagesCount?.(queryUserId) || 0,
+        messagesToday: db.getMessagesCountToday?.(queryUserId) || 0,
         sessionStats: sessionPool.getStats()
       };
       res.json(summary);
@@ -828,7 +832,9 @@ export function setupRoutes(
     try {
       const sessionId = req.query.sessionId as string;
       const days = parseInt(req.query.days as string) || 7;
-      const stats = db.getMessageStats?.(sessionId, days);
+      const isAdmin = (req as any).user?.role === 'admin';
+      const userId = (req as any).user?.id;
+      const stats = db.getMessageStats?.(sessionId, days, isAdmin ? userId : undefined);
       res.json(stats);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -839,7 +845,9 @@ export function setupRoutes(
     try {
       const sessionId = req.query.sessionId as string;
       const hours = parseInt(req.query.hours as string) || 24;
-      const activity = db.getHourlyActivity?.(sessionId, hours);
+      const isAdmin = (req as any).user?.role === 'admin';
+      const userId = (req as any).user?.id;
+      const activity = db.getHourlyActivity?.(sessionId, hours, isAdmin ? userId : undefined);
       res.json(activity);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
