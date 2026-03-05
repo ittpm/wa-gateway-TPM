@@ -366,8 +366,8 @@ export class QueueManager {
     return this.isPaused;
   }
 
-  retryFailed(): void {
-    const messages = this.db.getMessagesByStatus('failed', 100);
+  retryFailed(userId?: string): void {
+    const messages = this.db.getMessagesByStatus('failed', 100, userId);
     for (const message of messages) {
       message.status = 'pending';
       message.attempts = 0;
@@ -377,13 +377,13 @@ export class QueueManager {
     logger.info(`Retrying ${messages.length} failed messages`);
   }
 
-  clear(status: string): void {
-    this.db.deleteMessagesByStatus(status);
+  clear(status: string, userId?: string): void {
+    this.db.deleteMessagesByStatus(status, userId);
     logger.info(`Cleared ${status} messages`);
   }
 
-  getStats(): Record<string, number> {
-    return this.db.getQueueStats();
+  getStats(userId?: string): Record<string, number> {
+    return this.db.getQueueStats(userId);
   }
 
   async stop(): Promise<void> {

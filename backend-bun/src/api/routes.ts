@@ -625,34 +625,52 @@ export function setupRoutes(
 
   // ========== QUEUE ==========
   router.get('/queue', (req, res) => {
-    const pending = db.getMessagesByStatus('pending', 100);
-    const processing = db.getMessagesByStatus('processing', 100);
+    const isAdmin = (req as any).user?.role === 'admin';
+    const userId = isAdmin ? (req as any).user.id : undefined;
+
+    const pending = db.getMessagesByStatus('pending', 100, userId);
+    const processing = db.getMessagesByStatus('processing', 100, userId);
     res.json([...pending, ...processing]);
   });
 
   router.get('/queue/stats', (req, res) => {
-    const stats = queueManager.getStats();
+    const isAdmin = (req as any).user?.role === 'admin';
+    const userId = isAdmin ? (req as any).user.id : undefined;
+
+    const stats = queueManager.getStats(userId);
     res.json(stats);
   });
 
   router.post('/queue/pause', (req, res) => {
+    if ((req as any).user?.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Only superadmin can pause the global queue' });
+    }
     queueManager.pause();
     res.json({ paused: true, message: 'Antrean dijeda' });
   });
 
   router.post('/queue/resume', (req, res) => {
+    if ((req as any).user?.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Only superadmin can resume the global queue' });
+    }
     queueManager.resume();
     res.json({ paused: false, message: 'Antrean dilanjutkan' });
   });
 
   router.post('/queue/retry', (req, res) => {
-    queueManager.retryFailed();
+    const isAdmin = (req as any).user?.role === 'admin';
+    const userId = isAdmin ? (req as any).user.id : undefined;
+
+    queueManager.retryFailed(userId);
     res.json({ message: 'Mencoba ulang pesan yang gagal' });
   });
 
   router.delete('/queue', (req, res) => {
     const status = req.query.status as string || 'completed';
-    queueManager.clear(status);
+    const isAdmin = (req as any).user?.role === 'admin';
+    const userId = isAdmin ? (req as any).user.id : undefined;
+
+    queueManager.clear(status, userId);
     res.json({ message: `Antrean ${status} dibersihkan` });
   });
 

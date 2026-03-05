@@ -22,12 +22,23 @@ function Queue() {
   })
   const [loading, setLoading] = useState(true)
   const [isPaused, setIsPaused] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
 
   useEffect(() => {
     fetchQueue()
+    fetchUser()
     const interval = setInterval(fetchQueue, 5000)
     return () => clearInterval(interval)
   }, [])
+
+  const fetchUser = async () => {
+    try {
+      const response = await api.get('/auth/me')
+      if (response.data?.user) {
+        setCurrentUser(response.data.user)
+      }
+    } catch { }
+  }
 
   const fetchQueue = async () => {
     try {
@@ -109,13 +120,15 @@ function Queue() {
           <p className="text-gray-500">Manage and monitor message delivery queue</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={togglePause}
-            className={isPaused ? 'btn-primary' : 'btn-secondary'}
-          >
-            {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-            {isPaused ? 'Resume' : 'Pause'}
-          </button>
+          {currentUser?.role === 'superadmin' && (
+            <button
+              onClick={togglePause}
+              className={isPaused ? 'btn-primary' : 'btn-secondary'}
+            >
+              {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+              {isPaused ? 'Resume' : 'Pause'}
+            </button>
+          )}
           <button
             onClick={retryFailed}
             className="btn-secondary"

@@ -506,10 +506,21 @@ export class Database {
     return { ...message, id, createdAt: new Date(now), updatedAt: new Date(now), attempts: 0 };
   }
 
-  getMessagesByStatus(status: string, limit: number = 100): Message[] {
+  getMessagesByStatus(status: string, limit: number = 100, userId?: string): Message[] {
     if (!this.db) return [];
 
-    const rows = this.db.query('SELECT * FROM messages WHERE status = ? ORDER BY created_at ASC LIMIT ?').all(status, limit) as any[];
+    let query = 'SELECT * FROM messages WHERE status = ?';
+    const params: any[] = [status];
+
+    if (userId) {
+      query += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = ?)';
+      params.push(userId);
+    }
+
+    query += ' ORDER BY created_at ASC LIMIT ?';
+    params.push(limit);
+
+    const rows = this.db.query(query).all(...params) as any[];
 
     return rows.map(row => this.mapMessage(row));
   }
@@ -538,16 +549,32 @@ export class Database {
     }
   }
 
-  deleteMessagesByStatus(status: string): void {
+  deleteMessagesByStatus(status: string, userId?: string): void {
     if (!this.db) return;
+    
+    if (userId) {
+      this.db.run('DELETE FROM messages WHERE status = ? AND session_id IN (SELECT id FROM sessions WHERE user_id = ?)', [status, userId]);
+      return;
+    }
+
     this.db.run('DELETE FROM messages WHERE status = ?', [status]);
   }
 
-  getQueueStats(): Record<string, number> {
+  getQueueStats(userId?: string): Record<string, number> {
     if (!this.db) return {};
 
     try {
-      const rows = this.db.query('SELECT status, COUNT(*) as count FROM messages GROUP BY status').all() as any[];
+      let query = 'SELECT status, COUNT(*) as count FROM messages';
+      const params: any[] = [];
+      
+      if (userId) {
+        query += ' WHERE session_id IN (SELECT id FROM sessions WHERE user_id = ?)';
+        params.push(userId);
+      }
+      
+      query += ' GROUP BY status';
+      
+      const rows = this.db.query(query).all(...params) as any[];
 
       const stats: Record<string, number> = {};
       for (const row of rows) {
