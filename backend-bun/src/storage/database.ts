@@ -831,17 +831,35 @@ export class Database {
   }
 
   // Stats
-  getStats(): Stats {
+  getStats(userId?: string): Stats {
     if (!this.db) {
       return { totalSessions: 0, activeSessions: 0, messagesSent: 0, messagesQueued: 0, messagesDelivered: 0, messagesFailed: 0 };
     }
 
-    const totalSessions = (this.db.query('SELECT COUNT(*) as count FROM sessions').get() as any).count;
-    const activeSessions = (this.db.query("SELECT COUNT(*) as count FROM sessions WHERE status = 'connected'").get() as any).count;
-    const messagesSent = (this.db.query('SELECT COUNT(*) as count FROM messages').get() as any).count;
-    const messagesQueued = (this.db.query("SELECT COUNT(*) as count FROM messages WHERE status = 'pending'").get() as any).count;
-    const messagesDelivered = (this.db.query("SELECT COUNT(*) as count FROM messages WHERE status = 'completed'").get() as any).count;
-    const messagesFailed = (this.db.query("SELECT COUNT(*) as count FROM messages WHERE status = 'failed'").get() as any).count;
+    let sessionWhere = '';
+    let sessionWhereStatus = "WHERE status = 'connected'";
+    let messageWhere = '';
+    let messageWherePending = "WHERE status = 'pending'";
+    let messageWhereCompleted = "WHERE status = 'completed'";
+    let messageWhereFailed = "WHERE status = 'failed'";
+    const params: any[] = [];
+
+    if (userId) {
+      sessionWhere = 'WHERE user_id = ?';
+      sessionWhereStatus = "WHERE status = 'connected' AND user_id = ?";
+      messageWhere = 'WHERE session_id IN (SELECT id FROM sessions WHERE user_id = ?)';
+      messageWherePending = "WHERE status = 'pending' AND session_id IN (SELECT id FROM sessions WHERE user_id = ?)";
+      messageWhereCompleted = "WHERE status = 'completed' AND session_id IN (SELECT id FROM sessions WHERE user_id = ?)";
+      messageWhereFailed = "WHERE status = 'failed' AND session_id IN (SELECT id FROM sessions WHERE user_id = ?)";
+      params.push(userId);
+    }
+
+    const totalSessions = (this.db.query(`SELECT COUNT(*) as count FROM sessions ${sessionWhere}`).get(...params) as any).count;
+    const activeSessions = (this.db.query(`SELECT COUNT(*) as count FROM sessions ${sessionWhereStatus}`).get(...params) as any).count;
+    const messagesSent = (this.db.query(`SELECT COUNT(*) as count FROM messages ${messageWhere}`).get(...params) as any).count;
+    const messagesQueued = (this.db.query(`SELECT COUNT(*) as count FROM messages ${messageWherePending}`).get(...params) as any).count;
+    const messagesDelivered = (this.db.query(`SELECT COUNT(*) as count FROM messages ${messageWhereCompleted}`).get(...params) as any).count;
+    const messagesFailed = (this.db.query(`SELECT COUNT(*) as count FROM messages ${messageWhereFailed}`).get(...params) as any).count;
 
     return { totalSessions, activeSessions, messagesSent, messagesQueued, messagesDelivered, messagesFailed };
   }

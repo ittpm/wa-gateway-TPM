@@ -962,7 +962,10 @@ export function setupRoutes(
 
   // ========== STATS ==========
   router.get('/stats', (req, res) => {
-    const stats = db.getStats();
+    const isAdmin = (req as any).user?.role === 'admin';
+    const userId = isAdmin ? (req as any).user.id : undefined;
+
+    const stats = db.getStats(userId);
     res.json(stats);
   });
 
