@@ -1,4 +1,4 @@
-import { BookOpen, Shield, Bot, Play, Settings2, Sparkles, MessageCircle, AlertCircle } from 'lucide-react'
+import { BookOpen, Shield, Bot, Play, Settings2, Sparkles, MessageCircle, AlertCircle, ListOrdered } from 'lucide-react'
 
 export default function DocsTutorial() {
     return (
