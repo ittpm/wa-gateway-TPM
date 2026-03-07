@@ -7,7 +7,8 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import { readFileSync, existsSync, appendFileSync } from 'fs';
 import { join } from 'path';
-import { Database } from './storage/database.js';
+import { Database as SqliteDatabase } from './storage/database.js';
+import { Database as PostgresDatabase } from './storage/database-pg.js';
 import { ConnectionManager } from './connection/manager.js';
 import { QueueManager } from './queue/manager.js';
 import { WebhookDispatcher } from './webhook/dispatcher.js';
@@ -21,8 +22,9 @@ import { cleanupPort, startServerWithRetry } from './utils/port-utils.js';
 dotenv.config();
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '8080');
+const PORT = parseInt(process.env.PORT || '9090');
 const HOST = process.env.HOST || '0.0.0.0';
+const DB_TYPE = (process.env.DB_TYPE || 'sqlite').toLowerCase();
 
 app.set('trust proxy', 1);
 
@@ -149,7 +151,14 @@ async function main() {
     logger.info('╚════════════════════════════════════════════════════════╝');
 
     // Initialize database
-    const db = new Database();
+    let db;
+    if (DB_TYPE === 'postgresql' || DB_TYPE === 'postgres' || DB_TYPE === 'pg') {
+      logger.info('Using PostgreSQL database');
+      db = new PostgresDatabase();
+    } else {
+      logger.info('Using SQLite database (default)');
+      db = new SqliteDatabase();
+    }
     await db.init();
     logger.info('✓ Database connected');
 

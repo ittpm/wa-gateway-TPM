@@ -552,6 +552,15 @@ export class Database {
   deleteMessagesByStatus(status: string, userId?: string): void {
     if (!this.db) return;
     
+    if (status === 'all') {
+      if (userId) {
+        this.db.run('DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE user_id = ?)', [userId]);
+      } else {
+        this.db.run('DELETE FROM messages');
+      }
+      return;
+    }
+
     if (userId) {
       this.db.run('DELETE FROM messages WHERE status = ? AND session_id IN (SELECT id FROM sessions WHERE user_id = ?)', [status, userId]);
       return;

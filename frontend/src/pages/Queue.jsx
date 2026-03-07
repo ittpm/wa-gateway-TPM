@@ -5,10 +5,8 @@ import {
   CheckCircle,
   XCircle,
   RefreshCw,
-  Trash2,
   Play,
-  Pause,
-  AlertCircle
+  Pause
 } from 'lucide-react'
 import { api } from '../services/api'
 
@@ -23,6 +21,7 @@ function Queue() {
   const [loading, setLoading] = useState(true)
   const [isPaused, setIsPaused] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
+  const [activeFilter, setActiveFilter] = useState(null)
 
   useEffect(() => {
     fetchQueue()
@@ -56,16 +55,6 @@ function Queue() {
       console.error('Failed to fetch queue:', error)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const clearQueue = async (status) => {
-    try {
-      await api.delete(`/queue?status=${status}`)
-      toast.success(`Cleared ${status} messages`)
-      fetchQueue()
-    } catch (error) {
-      toast.error('Failed to clear queue')
     }
   }
 
@@ -111,6 +100,14 @@ function Queue() {
     )
   }
 
+  const toggleFilter = (status) => {
+    setActiveFilter(activeFilter === status ? null : status)
+  }
+
+  const filteredQueue = activeFilter 
+    ? queue.filter(item => item.status === activeFilter) 
+    : queue
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -142,7 +139,10 @@ function Queue() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card">
+        <div 
+          className={`card cursor-pointer transition-colors ${activeFilter === 'pending' ? 'ring-2 ring-gray-400 bg-gray-50' : 'hover:bg-gray-50'}`}
+          onClick={() => toggleFilter('pending')}
+        >
           <div className="flex items-center gap-3">
             <div className="p-3 bg-gray-100 rounded-lg">
               <Clock className="w-5 h-5 text-gray-600" />
@@ -153,7 +153,10 @@ function Queue() {
             </div>
           </div>
         </div>
-        <div className="card">
+        <div 
+          className={`card cursor-pointer transition-colors ${activeFilter === 'processing' ? 'ring-2 ring-blue-400 bg-blue-50' : 'hover:bg-gray-50'}`}
+          onClick={() => toggleFilter('processing')}
+        >
           <div className="flex items-center gap-3">
             <div className="p-3 bg-blue-100 rounded-lg">
               <RefreshCw className="w-5 h-5 text-blue-600" />
@@ -164,7 +167,10 @@ function Queue() {
             </div>
           </div>
         </div>
-        <div className="card">
+        <div 
+          className={`card cursor-pointer transition-colors ${activeFilter === 'completed' ? 'ring-2 ring-green-400 bg-green-50' : 'hover:bg-gray-50'}`}
+          onClick={() => toggleFilter('completed')}
+        >
           <div className="flex items-center gap-3">
             <div className="p-3 bg-green-100 rounded-lg">
               <CheckCircle className="w-5 h-5 text-green-600" />
@@ -175,7 +181,10 @@ function Queue() {
             </div>
           </div>
         </div>
-        <div className="card">
+        <div 
+          className={`card cursor-pointer transition-colors ${activeFilter === 'failed' ? 'ring-2 ring-red-400 bg-red-50' : 'hover:bg-gray-50'}`}
+          onClick={() => toggleFilter('failed')}
+        >
           <div className="flex items-center gap-3">
             <div className="p-3 bg-red-100 rounded-lg">
               <XCircle className="w-5 h-5 text-red-600" />
@@ -191,21 +200,9 @@ function Queue() {
       {/* Queue Table */}
       <div className="card overflow-hidden">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Queue Items</h2>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => clearQueue('completed')}
-              className="text-sm text-gray-500 hover:text-red-600"
-            >
-              Clear Completed
-            </button>
-            <button
-              onClick={() => clearQueue('failed')}
-              className="text-sm text-gray-500 hover:text-red-600"
-            >
-              Clear Failed
-            </button>
-          </div>
+          <h2 className="text-lg font-semibold text-gray-900">
+            Queue Items {activeFilter && <span className="text-sm font-normal text-gray-500">(Filtered: {activeFilter})</span>}
+          </h2>
         </div>
 
         <div className="overflow-x-auto">
@@ -232,17 +229,17 @@ function Queue() {
                     <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
                   </tr>
                 ))
-              ) : queue.length === 0 ? (
+              ) : filteredQueue.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
                     <Clock className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                    <p>Queue is empty</p>
+                    <p>{activeFilter ? `No ${activeFilter} messages in queue` : 'Queue is empty'}</p>
                   </td>
                 </tr>
               ) : (
-                queue.map((item) => (
+                filteredQueue.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm font-mono text-gray-600">{item.id.slice(0, 8)}...</td>
+                    <td className="px-4 py-3 text-sm font-mono text-gray-600" title={item.id}>{item.id.slice(0, 8)}...</td>
                     <td className="px-4 py-3 text-sm text-gray-900">{item.to}</td>
                     <td className="px-4 py-3 text-sm text-gray-600 capitalize">{item.type}</td>
                     <td className="px-4 py-3">{getStatusBadge(item.status)}</td>

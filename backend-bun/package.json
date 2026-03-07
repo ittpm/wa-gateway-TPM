@@ -9,6 +9,7 @@
     "build": "bun build src/index.ts --outdir dist --target bun"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc.6",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
@@ -21,10 +22,10 @@
     "jsonwebtoken": "^9.0.3",
     "music-metadata": "^11.12.1",
     "node-cron": "^3.0.3",
+    "pg": "^8.20.0",
     "qrcode": "^1.5.3",
     "qrcode-terminal": "^0.12.0",
     "wa-multi-session": "^4.2.3",
-    "@whiskeysockets/baileys": "^7.0.0-rc.6",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -37,6 +38,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.11.0",
     "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.18.0",
     "@types/qrcode": "^1.5.5",
     "bun-types": "latest"
   },

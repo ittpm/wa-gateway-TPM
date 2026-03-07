@@ -93,6 +93,71 @@ wa-gateway/
 - **Node.js 18+**
 - **Build essentials**: `sudo apt-get install build-essential`
 - **SQLite3**: `sudo apt-get install sqlite3 libsqlite3-dev`
+- **PostgreSQL (Optional, for production)**: `sudo apt-get install postgresql postgresql-contrib`
+
+---
+
+## Database Configuration
+
+By default, the application uses **SQLite** for simplicity. For production/ commercialization with many users, we recommend using **PostgreSQL**.
+
+### Using SQLite (Default)
+```bash
+# No additional setup required
+# Just edit .env if needed:
+DB_TYPE=sqlite
+DB_PATH=./data/wagateway.db
+```
+
+### Using PostgreSQL (Recommended for Production)
+
+#### 1. Install PostgreSQL
+
+**Linux (Ubuntu/Debian):**
+```bash
+# Install PostgreSQL
+sudo apt-get update
+sudo apt-get install postgresql postgresql-contrib
+
+# Start PostgreSQL
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Create database and user
+sudo -u postgres psql
+```
+
+**In PostgreSQL console:**
+```sql
+CREATE DATABASE wagateway;
+CREATE USER wagatewayuser WITH PASSWORD 'your_secure_password';
+GRANT ALL PRIVILEGES ON DATABASE wagateway TO wagatewayuser;
+\q
+```
+
+#### 2. Configure Environment Variables
+
+Edit `backend-bun/.env`:
+
+```env
+# Database
+DB_TYPE=postgresql
+
+# PostgreSQL Configuration
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=wagatewayuser
+DB_PASSWORD=your_secure_password
+DB_NAME=wagateway
+```
+
+#### 3. Start the Application
+```bash
+cd backend-bun
+bun run dev
+```
+
+The application will automatically create all required tables on first run.
 
 ---
 

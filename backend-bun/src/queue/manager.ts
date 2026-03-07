@@ -143,54 +143,74 @@ export class QueueManager {
     return msg;
   }
 
+  private readonly MAX_TOTAL_CONCURRENT = 10; // Max 10 pesan berjalan bersamaan di server (global)
+  private readonly MAX_PER_USER_BATCH = 2; // Max 2 pesan per user per siklus (supaya adil)
+
   private async processQueue(): Promise<void> {
-    // Prevent overlapping runs if previous run is still processing a large batch
-    // (Optional: implement a lock flag if needed, but here we use individual message locking)
+    // Ambil semua pesan pending
+    const allMessages = this.db.getMessagesByStatus('pending', 100);
 
-    const messages = this.db.getMessagesByStatus('pending', 10);
+    if (allMessages.length === 0) return;
 
-    if (messages.length > 0) {
-      logger.info(`[Queue] Found ${messages.length} pending messages`);
-    }
+    logger.info(`[Queue] Found ${allMessages.length} pending messages`);
 
-    for (const message of messages) {
+    // Kelompokkan pesan berdasarkan user_id
+    const messagesByUser = new Map<string, Message[]>();
+    
+    for (const message of allMessages) {
+      // Skip jika sedang diproses
+      if (this.processingMessageIds.has(message.id)) continue;
+      
+      // Skip jika belum waktunya (scheduled)
+      if (message.scheduledAt && new Date() < message.scheduledAt) continue;
+
       const session = this.db.getSession(message.sessionId);
-      const settings = session?.userId ? this.db.getAntiBlockSettings(session.userId) : null;
+      const userId = session?.userId || 'default';
 
-      // 1. Check if already being processed in this instance (Race Condition Fix)
-      if (this.processingMessageIds.has(message.id)) {
-        continue;
-      }
-
-      // Check scheduled time
-      if (message.scheduledAt && new Date() < message.scheduledAt) {
-        // logger.debug(`[Queue] Message ${message.id} scheduled for later`);
-        continue;
-      }
-
-      // Rate limiting
+      // Rate limiting per user check
+      const settings = userId !== 'default' ? this.db.getAntiBlockSettings(userId) : null;
       if (settings?.rateLimitEnabled) {
-        if (!this.canSend(message.sessionId, settings)) {
-          // logger.debug(`[Queue] Rate limited for session ${message.sessionId}`);
-          continue;
-        }
+        if (!this.canSend(message.sessionId, settings)) continue;
       }
 
-      // 2. Lock the message
-      this.processingMessageIds.add(message.id);
-
-      // Process message
-      logger.info(`[Queue] Processing message ${message.id}: ${message.type} to ${message.to}`);
-
-      // We don't await here to allow parallel processing of different messages, 
-      // but we tracked the ID so we won't pick it up again in next tick.
-      // However, to be safe with DB updates, we should probably await or handle concurrency carefully.
-      // For now, let's await to keep it simple and safe.
-      await this.processMessage(message);
-
-      // 3. Unlock
-      this.processingMessageIds.delete(message.id);
+      if (!messagesByUser.has(userId)) {
+        messagesByUser.set(userId, []);
+      }
+      messagesByUser.get(userId)!.push(message);
     }
+
+    // Ambil pesan yang akan diproses: max MAX_PER_USER_BATCH per user
+    const messagesToProcess: Message[] = [];
+    
+    for (const [userId, userMessages] of messagesByUser) {
+      // Ambil max 2 pesan per user
+      const batch = userMessages.slice(0, this.MAX_PER_USER_BATCH);
+      messagesToProcess.push(...batch);
+    }
+
+    // Batasi total pesan yang diproses sekaligus (global)
+    const finalBatch = messagesToProcess.slice(0, this.MAX_TOTAL_CONCURRENT);
+
+    if (finalBatch.length === 0) return;
+
+    logger.info(`[Queue] Processing ${finalBatch.length} messages from ${messagesByUser.size} users concurrently`);
+
+    // Proses semua pesan secara paralel
+    // Ini也让 Event Loop tetap responsive karena tidak blocking
+    const promises = finalBatch.map(async (message) => {
+      this.processingMessageIds.add(message.id);
+      
+      try {
+        logger.info(`[Queue] Processing ${message.type} to ${message.to} (User: ${this.db.getSession(message.sessionId)?.userId})`);
+        await this.processMessage(message);
+      } catch (error) {
+        logger.error(`[Queue] Error processing message ${message.id}:`, error);
+      } finally {
+        this.processingMessageIds.delete(message.id);
+      }
+    });
+
+    await Promise.all(promises);
   }
 
   private async processMessage(message: Message): Promise<void> {
