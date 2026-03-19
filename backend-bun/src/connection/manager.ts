@@ -156,6 +156,22 @@ export class ConnectionManager {
             // Setup event listeners untuk contacts dan chats sync
             this.setupContactSync(sessionId, session.sock);
 
+            // FIX Bug 3: Simpan kontak dari pesan masuk PER SESSION — bukan via global callback
+            // Ini memastikan kontak selalu tersimpan ke session yang benar (tidak cross-akun)
+            session.sock.ev.on('messages.upsert', async ({ messages: msgs }: any) => {
+              try {
+                for (const msg of (msgs || [])) {
+                  if (!msg?.key?.remoteJid) continue;
+                  const remoteJid = msg.key.remoteJid;
+                  if (remoteJid.includes('status@broadcast')) continue;
+                  const name = msg.pushName || msg.verifiedBizName || null;
+                  await this.saveContact(sessionId, remoteJid, name);
+                }
+              } catch (err) {
+                logger.error(`[Session ${sessionId}] Error saving contact from upsert:`, err);
+              }
+            });
+
             // Listen for message status updates (Receipts)
             session.sock.ev.on('messages.update', async (updates) => {
               for (const update of updates) {
@@ -232,21 +248,10 @@ export class ConnectionManager {
           const remoteJid = message.key.remoteJid;
           if (remoteJid.includes('status@broadcast')) return;
 
-          // Cari session yang terhubung
-          for (const [sessionId, conn] of this.sessions.entries()) {
-            if (conn.status === 'connected') {
-              const name = message.pushName ||
-                message.verifiedBizName ||
-                remoteJid.split('@')[0];
-
-              // Simpan kontak dari pesan masuk
-              await this.saveContact(sessionId, remoteJid, name);
-              logger.debug(`[Session ${sessionId}] Contact saved from message: ${remoteJid}`);
-
-              // Hanya simpan ke satu session saja (yang pertama)
-              break;
-            }
-          }
+          // NOTE: Penyimpanan kontak dari pesan masuk sudah dipindahkan ke per-session
+          // 'messages.upsert' listener di onConnected (setupContactSync area).
+          // Jangan simpan kontak di sini — ini callback global yang tidak tahu session mana
+          // yang benar-benar menerima pesan, sehingga dapat menyebabkan cross-account mixing.
 
           if (this.messageHandler && message) {
             const incomingMsg: IncomingMessage = {

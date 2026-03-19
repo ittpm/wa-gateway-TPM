@@ -44,8 +44,12 @@ export function setupRoutes(
 
   // ========== SESSIONS ==========
   router.get('/sessions', async (req, res) => {
-    const isAdmin = (req as any).user?.role === 'admin';
-    const userId = isAdmin ? (req as any).user.id : undefined;
+    // Both 'admin' and 'superadmin' hanya melihat session milik mereka sendiri.
+    // Exception: global API key menggunakan id='system' — tetap lihat semua (backward compat).
+    const userRole = (req as any).user?.role;
+    const currentUserId = (req as any).user?.id;
+    const isScopedUser = (userRole === 'admin' || userRole === 'superadmin') && currentUserId !== 'system';
+    const userId = isScopedUser ? currentUserId : undefined;
     
     const sessions = (await db.getAllSessions(userId)).map(s => {
       const conn = connectionManager.getSession(s.id);

@@ -1,0 +1,193 @@
+{
+  "_meta": {
+    "description": "WA Gateway TPM — Architecture & Codebase Reference",
+    "purpose": "Digunakan oleh AI assistant untuk memahami arsitektur, alur data, dan lokasi kode tanpa harus membaca ulang semua file dari awal.",
+    "last_updated": "2026-03-20",
+    "project_root": "/opt/wa-gateway-TPM"
+  },
+
+  "stack": {
+    "runtime": "Bun (Node.js-compatible, TypeScript native)",
+    "framework": "Express 4",
+    "whatsapp_lib": "wa-multi-session v4.2.3 (wrapper atas @whiskeysockets/baileys v7)",
+    "database": "PostgreSQL (via pg pool)",
+    "auth": "JWT (jsonwebtoken) + bcryptjs",
+    "frontend": "Vue 3 + Vite (di folder /frontend, served via PM2 cluster)",
+    "process_manager": "PM2",
+    "pm2_processes": [
+      { "name": "wa-gateway-backend", "id": 2, "cwd": "/opt/wa-gateway-TPM/backend-bun", "script": "src/index.ts", "port": 9090 },
+      { "name": "wa-gateway-frontend", "id": 3, "cwd": "/opt/wa-gateway-TPM/frontend", "mode": "cluster" }
+    ]
+  },
+
+  "directory_structure": {
+    "/opt/wa-gateway-TPM": {
+      "backend-bun/": "Backend Express + Bun",
+      "frontend/": "Vue 3 + Vite SPA",
+      "docs/": "Dokumentasi API (API-DOKUMENTASI.md)",
+      "CHANGELOG.md": "History perubahan (date-based versioning)",
+      "architecture.json": "File ini — referensi arsitektur untuk AI",
+      "ecosystem.config.js": "Konfigurasi PM2"
+    },
+    "/opt/wa-gateway-TPM/backend-bun/src": {
+      "index.ts": "Entry point: inisialisasi Express, database, ConnectionManager, QueueManager, WebhookDispatcher, routes",
+      "api/auth.ts": "Auth routes: login, logout, /me, user CRUD (superadmin only), createDefaultUser()",
+      "api/routes.ts": "Semua API routes v1: sessions, messages, queue, pool, autoreply, templates, webhooks, contacts, analytics",
+      "connection/manager.ts": "ConnectionManager: buat/hapus/reconnect WA session, health check, contact sync via Baileys events",
+      "connection/session-pool.ts": "SessionPool: round-robin session selection untuk auto-send multi-device",
+      "middleware/auth.ts": "createAuthMiddleware(): JWT → global API key → per-session API key (wak_...) → legacy token",
+      "middleware/ratelimit.ts": "Rate limiters: loginLimiter, apiLimiter, webhookLimiter",
+      "middleware/validation.ts": "Zod schemas: sendMessageSchema, bulkMessageSchema, sessionSchema, webhookSchema, templateSchema",
+      "middleware/upload.ts": "File upload helpers: ensureUploadDir, validateFile, getFileType",
+      "models/types.ts": "TypeScript types: Session, Message, Webhook, WebhookLog, AntiBlockSettings, Stats, Template, IncomingMessage",
+      "models/user.ts": "TypeScript type: User",
+      "queue/manager.ts": "QueueManager: addMessage, processQueue, scheduler cron, retryFailed, getStats",
+      "services/": "Service layer (opsional, jika ada)",
+      "storage/database-pg.ts": "Database class (PostgreSQL): semua query — sessions, messages, users, contacts, webhooks, templates, analytics, settings",
+      "storage/database.ts": "Re-export Database dari database-pg.ts (alias)",
+      "utils/logger.ts": "Logger instance (winston atau custom)",
+      "utils/port-utils.ts": "cleanupPort(), startServerWithRetry()",
+      "webhook/dispatcher.ts": "WebhookDispatcher: dispatch events ke URL terdaftar, log hasil"
+    }
+  },
+
+  "authentication": {
+    "methods": [
+      {
+        "type": "JWT cookie/header",
+        "header": "Authorization: Bearer <token> OR Cookie: token=<jwt>",
+        "user_id": "UUID dari tabel users",
+        "roles": ["superadmin", "admin"],
+        "scope": "Akses penuh ke resource milik user (filtered by user_id)",
+        "note": "Superadmin dan admin sama-sama di-scope ke user_id mereka sendiri. Superadmin TIDAK otomatis lihat semua data akun lain."
+      },
+      {
+        "type": "Global API Key",
+        "header": "X-Api-Key: <nilai dari .env API_KEY>",
+        "user_id": "system",
+        "role": "admin",
+        "scope": "Akses ke semua session (backward compat). Tidak di-scope per user.",
+        "warning": "Karena user_id='system', session yang dibuat via global API key tidak terikat ke user manapun."
+      },
+      {
+        "type": "Per-session API Key",
+        "header": "X-Api-Key: wak_<prefix>_<uuid>",
+        "user_id": "session",
+        "role": "session",
+        "scope": "Hanya ke satu session spesifik (req.sessionApiKeyId)",
+        "format": "wak_ + 6 char dari session UUID + _ + random UUID tanpa dash"
+      },
+      {
+        "type": "Legacy session token (deprecated)",
+        "header": "X-Session-Token: wag_<base64>",
+        "scope": "Backward compat saja, tidak direkomendasikan"
+      }
+    ]
+  },
+
+  "roles": {
+    "superadmin": "Bisa kelola user (CRUD), bisa lihat session/data miliknya. Dibuat saat startup jika belum ada (username: admin).",
+    "admin": "User biasa, hanya akses ke resource (session, pesan, webhook) milik user_id sendiri.",
+    "session": "Dibuat otomatis saat autentikasi via per-session API key. Scope hanya ke session tersebut."
+  },
+
+  "database_tables": {
+    "sessions": {
+      "primary_key": "id (UUID)",
+      "key_columns": ["user_id", "name", "phone", "status", "jid", "token", "api_key", "me_name"],
+      "status_values": ["connecting", "qr", "connected", "disconnected", "logged_out"],
+      "api_key_format": "wak_<6char>_<uuid-no-dash>",
+      "note": "Setiap session punya api_key unik (UNIQUE constraint). user_id menentukan kepemilikan."
+    },
+    "users": {
+      "primary_key": "id (UUID)",
+      "key_columns": ["username", "password (bcrypt)", "role"],
+      "roles": ["superadmin", "admin"]
+    },
+    "messages": {
+      "primary_key": "id (UUID)",
+      "key_columns": ["session_id (FK)", "to_number", "message_type", "status", "scheduled_at (TIMESTAMPTZ)", "use_spintax", "delay_enabled"],
+      "status_values": ["pending", "processing", "completed", "failed", "scheduled"],
+      "note": "scheduled_at adalah TIMESTAMPTZ (timezone-aware). Scheduler cron compare dengan UTC NOW()."
+    },
+    "contacts": {
+      "primary_key": "id (UUID)",
+      "key_columns": ["session_id (FK)", "jid (UNIQUE per session)", "name", "phone", "is_group"],
+      "unique_constraint": "contacts_session_jid_unique ON (session_id, jid)",
+      "note": "Kontak di-upsert via ON CONFLICT DO UPDATE. name=NULL jika tidak ada nama (tidak fallback ke phone kecuali required)."
+    },
+    "webhooks": { "key_columns": ["user_id", "url", "events (comma-separated)", "status", "last_triggered"] },
+    "webhook_logs": { "key_columns": ["webhook_id (FK)", "event_type", "payload", "success", "status_code"] },
+    "templates": { "key_columns": ["user_id", "name", "content", "variables", "category"] },
+    "auto_reply_rules": { "key_columns": ["session_id (FK)", "trigger_type", "trigger_value", "reply_message", "is_active"] },
+    "auto_reply_settings": { "key_columns": ["session_id (PK)", "auto_reply_enabled", "auto_reject_unknown", "reply_cooldown"] },
+    "user_antiblock_settings": { "key_columns": ["user_id (PK)", "messages_per_minute", "messages_per_hour", "min_delay", "max_delay", "warmup_enabled"] },
+    "analytics_hourly": { "key_columns": ["session_id", "hour (YYYY-MM-DDTHH)", "sent", "failed"], "primary_key": "(session_id, hour)" },
+    "global_settings": { "key_columns": ["key (PK)", "value"] }
+  },
+
+  "session_lifecycle": {
+    "create": "POST /api/v1/sessions → ConnectionManager.createSession() → db.createSession() → whatsapp.startSession() → QR code generated → polling via GET /sessions/:id/qr",
+    "connect": "User scan QR → Baileys onConnected → status='connected' → per-session event listeners registered",
+    "event_listeners_registered_per_session": [
+      "contacts.upsert — batch save contacts dari WhatsApp sync",
+      "chats.upsert — save kontak dari chat history",
+      "messaging-history.set — save kontak & chat dari history sync",
+      "messages.upsert — save kontak dari pesan masuk (FIX: per-session, bukan global)",
+      "messages.update — update delivery status (delivered/read/played)",
+      "messages.update (di onConnected level) — update DB message status"
+    ],
+    "health_check": "Setiap 30 detik, cek sock.user && ws.readyState. Gagal 3x berturut → mark disconnected → auto-reconnect.",
+    "disconnect": "onDisconnected → status='disconnected'. Conflict (440) → exponential backoff.",
+    "delete": "DELETE /sessions/:id → whatsapp.deleteSession() → db.deleteSession() → CASCADE delete messages, contacts, dll."
+  },
+
+  "message_flow": {
+    "send": "POST /messages/send → validate → getSession() → queueManager.addMessage(status='pending') → QueueManager cron → sendMessage() → update status",
+    "scheduled": "status='scheduled' + scheduledAt → QueueManager scheduler cron check setiap menit → compare NOW() >= scheduled_at → process",
+    "bulk": "POST /messages/bulk → loop recipients → addMessage() untuk tiap nomor",
+    "auto_send": "POST /messages/send-auto → SessionPool.getBestSession() (round-robin) → addMessage()"
+  },
+
+  "known_bugs_fixed": [
+    {
+      "date": "2026-03-20",
+      "bug": "GET /sessions mengembalikan session semua akun untuk superadmin",
+      "root_cause": "role check hanya untuk 'admin', superadmin mendapat userId=undefined → query tanpa filter",
+      "fix": "routes.ts: filter userId untuk semua role kecuali user.id==='system' (global API key)"
+    },
+    {
+      "date": "2026-03-20",
+      "bug": "Kontak dari pesan masuk tersimpan ke session pertama yang connected, bukan session yang benar",
+      "root_cause": "onMessageReceived global callback iterasi semua session dan break di session pertama",
+      "fix": "manager.ts: hapus contact save dari global callback, tambahkan messages.upsert listener per-session di onConnected"
+    },
+    {
+      "date": "2026-03-16",
+      "bug": "Pesan terjadwal dikirim di waktu yang salah",
+      "root_cause": "TIMESTAMP column tanpa timezone → mismatch saat Node.js interpret",
+      "fix": "database-pg.ts: ALTER ke TIMESTAMPTZ + migration dengan AT TIME ZONE 'UTC'"
+    },
+    {
+      "date": "2026-03-16",
+      "bug": "Nama kontak tampil sebagai nomor telepon",
+      "root_cause": "pushName undefined, fallback ke phone number sebagai nama",
+      "fix": "manager.ts: priority chain name → null (bukan phone). DB migration: UPDATE contacts SET name=NULL WHERE name=phone"
+    },
+    {
+      "date": "2026-03-12",
+      "bug": "QR scan stuck loading loop saat server restart",
+      "root_cause": "Duplicate socket connection — session sudah ada di wa-multi-session tapi dibuat ulang",
+      "fix": "manager.ts: restoreSessionWithLock() + debounce 5s + restoreInProgress map"
+    }
+  ],
+
+  "important_conventions": {
+    "session_id": "Selalu UUID v4. Divalidasi dengan regex sebelum dipakai di query.",
+    "api_key_format": "Per-session: wak_<6char>_<32char>. Global: bebas (dari .env). Legacy token: wag_<base64>.",
+    "multi_tenant_isolation": "Semua query yang perlu isolasi menggunakan userId filter via subquery: session_id IN (SELECT id FROM sessions WHERE user_id = $N)",
+    "contact_upsert": "ON CONFLICT (session_id, jid) DO UPDATE — aman untuk concurrent writes",
+    "timestamp_convention": "Semua TIMESTAMP di messages table adalah TIMESTAMPTZ. Gunakan .toISOString() saat insert.",
+    "error_handling": "Global error handler di index.ts. Uncaught exceptions dari Baileys (Connection Closed, 428) di-suppress. Log ke global_error.log."
+  }
+}
