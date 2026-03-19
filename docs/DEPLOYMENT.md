@@ -1,281 +1,181 @@
-﻿# WA Gateway Deployment Guide
+# WA Gateway — Panduan Deployment Production
 
-## Table of Contents
-1. [Docker Deployment](#docker-deployment)
-2. [Linux Production Deployment](#linux-production-deployment)
-3. [Windows Service Deployment](#windows-service-deployment)
-4. [Reverse Proxy Configuration](#reverse-proxy-configuration)
-5. [SSL/TLS Setup](#ssltls-setup)
-6. [Monitoring](#monitoring)
-7. [Backup & Recovery](#backup--recovery)
+**Stack**: Bun + TypeScript + Express + Baileys + PostgreSQL + PM2 + Nginx  
+**Server**: Ubuntu 20.04+ / Debian 11+, minimal 2GB RAM, 20GB disk  
+**Domain production**: https://watpm.tpm.co.id
 
-## Docker Deployment
+---
 
-### Using Docker Compose (Recommended)
+## 1. Prasyarat Server
 
-Create `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  wa-gateway:
-    build: .
-    container_name: wa-gateway
-    restart: unless-stopped
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./data:/app/data
-      - ./.env:/app/.env
-    environment:
-      - TZ=Asia/Jakarta
-    networks:
-      - wa-gateway-network
-
-  frontend:
-    build: ./frontend
-    container_name: wa-gateway-frontend
-    restart: unless-stopped
-    ports:
-      - "9000:9000"
-    environment:
-      - VITE_API_URL=http://localhost:9090/api/v1
-    networks:
-      - wa-gateway-network
-
-  redis:
-    image: redis:7-alpine
-    container_name: wa-gateway-redis
-    restart: unless-stopped
-    volumes:
-      - redis-data:/data
-    networks:
-      - wa-gateway-network
-
-volumes:
-  redis-data:
-
-networks:
-  wa-gateway-network:
-    driver: bridge
-```
-
-Create `Dockerfile` for backend:
-
-```dockerfile
-FROM golang:1.21-alpine AS builder
-
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-RUN CGO_ENABLED=1 GOOS=linux go build -o wa-gateway ./cmd/server
-
-FROM alpine:latest
-
-RUN apk add --no-cache sqlite-libs ca-certificates
-
-WORKDIR /app
-COPY --from=builder /app/wa-gateway .
-COPY --from=builder /app/.env .
-
-EXPOSE 9090
-
-CMD ["./wa-gateway"]
-```
-
-Create `frontend/Dockerfile`:
-
-```dockerfile
-FROM node:18-alpine AS builder
-
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-
-COPY . .
-RUN npm run build
-
-FROM node:18-alpine
-
-RUN npm install -g serve
-
-WORKDIR /app
-COPY --from=builder /app/dist ./dist
-
-EXPOSE 9000
-
-CMD ["serve", "-s", "dist", "-l", "9000"]
-```
-
-Run:
-
-```bash
-docker-compose up -d
-```
-
-## Linux Production Deployment
-
-### System Requirements
-- Ubuntu 20.04+ / Debian 11+ / CentOS 8+
-- 2GB+ RAM
-- 10GB+ Disk space
-
-### Installation Steps
-
-1. **Update system:**
 ```bash
 sudo apt update && sudo apt upgrade -y
-```
+sudo apt install -y curl wget git nginx certbot python3-certbot-nginx
 
-2. **Create user:**
-```bash
-sudo useradd -r -s /bin/false wagateway
-sudo mkdir -p /opt/wa-gateway
-sudo chown wagateway:wagateway /opt/wa-gateway
-```
-
-3. **Install dependencies:**
-```bash
-sudo apt install -y curl wget git build-essential sqlite3 nginx certbot python3-certbot-nginx
-```
-
-4. **Install Go:**
-```bash
-wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
-rm go1.21.5.linux-amd64.tar.gz
-echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh
-source /etc/profile.d/go.sh
-```
-
-5. **Install Node.js:**
-```bash
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+# Install Node.js 20
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
+
+# Install Bun
+curl -fsSL https://bun.sh/install | bash
+source ~/.bashrc
+
+# Install PM2 + serve
+sudo npm install -g pm2 serve
 ```
 
-6. **Deploy application:**
+---
+
+## 2. Setup PostgreSQL
+
 ```bash
-cd /opt/wa-gateway
-# Copy your application files here
-sudo chown -R wagateway:wagateway /opt/wa-gateway
+sudo apt install -y postgresql postgresql-contrib
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
+
+sudo -u postgres psql << 'EOF'
+CREATE DATABASE wagateway;
+CREATE USER wagatewayuser WITH PASSWORD 'wagateway2024';
+GRANT ALL PRIVILEGES ON DATABASE wagateway TO wagatewayuser;
+\q
+EOF
 ```
 
-7. **Build application:**
+---
+
+## 3. Clone / Update Aplikasi
+
 ```bash
-# Backend
-sudo -u wagateway bash -c '
-cd /opt/wa-gateway/backend
-go mod download
-go build -o wa-gateway ./cmd/server
-'
+# Clone pertama kali
+cd /opt
+git clone https://github.com/GanishaMGN/wa-gateway-TPM.git
+cd wa-gateway-TPM
 
-# Frontend
-sudo -u wagateway bash -c '
-cd /opt/wa-gateway/frontend
-npm ci
-npm run build
-'
+# Install dependencies
+cd backend-bun && bun install && cd ..
+cd frontend && npm install && npm run build && cd ..
 ```
 
-8. **Create systemd service:**
-
-`/etc/systemd/system/wa-gateway.service`:
-```ini
-[Unit]
-Description=WA Gateway Backend
-After=network.target
-
-[Service]
-Type=simple
-User=wagateway
-WorkingDirectory=/opt/wa-gateway/backend
-ExecStart=/opt/wa-gateway/backend/wa-gateway
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=wa-gateway
-
-[Install]
-WantedBy=multi-user.target
-```
-
-`/etc/systemd/system/wa-gateway-frontend.service`:
-```ini
-[Unit]
-Description=WA Gateway Frontend
-After=network.target
-
-[Service]
-Type=simple
-User=wagateway
-WorkingDirectory=/opt/wa-gateway/frontend
-ExecStart=/usr/bin/serve -s dist -l 9000
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-9. **Start services:**
+**Update kode:**
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable wa-gateway wa-gateway-frontend
-sudo systemctl start wa-gateway wa-gateway-frontend
+cd /opt/wa-gateway-TPM
+git pull origin main
+
+# Rebuild frontend jika ada perubahan UI
+cd frontend && npm run build && cd ..
+
+# Restart backend jika ada perubahan backend
+pm2 restart wa-gateway-backend --update-env
 ```
 
-## Windows Service Deployment
+---
 
-### Using NSSM (Non-Sucking Service Manager)
+## 4. Konfigurasi `.env`
 
-1. **Download NSSM:**
-   - Download from https://nssm.cc/download
-   - Extract to `C:\nssm`
+Edit `/opt/wa-gateway-TPM/backend-bun/.env`:
 
-2. **Create backend service:**
-```powershell
-cd C:\nssm\win64
-.\nssm.exe install WA-Gateway-Backend
-# Set Application path: C:\wa-gateway\backend\wa-gateway.exe
-# Set Working directory: C:\wa-gateway\backend
+```env
+# Server
+PORT=9090
+HOST=0.0.0.0
+NODE_ENV=production
 
-.\nssm.exe start WA-Gateway-Backend
+# Security — WAJIB GANTI!
+JWT_SECRET=ganti-dengan-nilai-random-yang-kuat
+API_KEY=ganti-dengan-nilai-random-yang-kuat
+SUPERADMIN_PASSWORD=password-admin-yang-kuat
+
+# CORS
+CORS_ORIGIN=https://watpm.tpm.co.id
+
+# Database (PostgreSQL)
+DB_TYPE=postgres
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=wagatewayuser
+DB_PASSWORD=wagateway2024
+DB_NAME=wagateway
+
+# Anti-Block
+ANTIBLOCK_ENABLED=true
+RATE_LIMIT_ENABLED=true
+MESSAGES_PER_MINUTE=5
+MESSAGES_PER_HOUR=50
+BURST_LIMIT=10
+DELAY_ENABLED=true
+MIN_DELAY=1
+MAX_DELAY=5
+WARMUP_ENABLED=true
+WARMUP_DAYS=7
+
+# Webhook
+WEBHOOK_RETRIES=3
+WEBHOOK_TIMEOUT=30000
 ```
 
-3. **Create frontend service:**
-```powershell
-.\nssm.exe install WA-Gateway-Frontend
-# Set Application path: C:\Program Files\nodejs\node.exe
-# Set Arguments: C:\Users\[User]\AppData\Roaming\npm\node_modules\serve\build\main.js -s C:\wa-gateway\frontend\dist -l 9000
-
-.\nssm.exe start WA-Gateway-Frontend
+**Generate secret kuat:**
+```bash
+openssl rand -hex 32   # untuk JWT_SECRET
+openssl rand -hex 32   # untuk API_KEY
 ```
 
-## Reverse Proxy Configuration
+---
 
-### Nginx
+## 5. Konfigurasi PM2
+
+File `ecosystem.config.js` sudah tersedia di root project. Jalankan:
+
+```bash
+cd /opt/wa-gateway-TPM
+
+# Start semua service
+pm2 start ecosystem.config.js
+
+# Simpan agar auto-start saat reboot
+pm2 save
+pm2 startup
+# Ikuti instruksi yang muncul
+```
+
+### Perintah PM2 Berguna
+
+```bash
+pm2 status                                     # Status semua proses
+pm2 logs wa-gateway-backend                    # Log backend live
+pm2 logs wa-gateway-backend --lines 100        # 100 baris log
+pm2 logs wa-gateway-backend --err              # Hanya error
+pm2 restart wa-gateway-backend --update-env    # Restart + load ulang .env
+pm2 restart wa-gateway-frontend                # Restart frontend (setelah npm run build)
+pm2 reload ecosystem.config.js                 # Reload konfigurasi
+pm2 monit                                      # Dashboard monitoring real-time
+```
+
+---
+
+## 6. Nginx Reverse Proxy
+
+```bash
+sudo nano /etc/nginx/sites-available/wa-gateway
+```
 
 ```nginx
-upstream wa_gateway_backend {
+upstream wa_backend {
     server 127.0.0.1:9090;
 }
 
-upstream wa_gateway_frontend {
+upstream wa_frontend {
     server 127.0.0.1:9000;
 }
 
 server {
     listen 80;
-    server_name wa-gateway.yourdomain.com;
+    server_name watpm.tpm.co.id;
 
-    # Frontend
+    # Redirect ke HTTPS (aktifkan setelah SSL terpasang)
+    # return 301 https://$server_name$request_uri;
+
     location / {
-        proxy_pass http://wa_gateway_frontend;
+        proxy_pass http://wa_frontend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -286,9 +186,8 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    # API
     location /api {
-        proxy_pass http://wa_gateway_backend;
+        proxy_pass http://wa_backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -297,265 +196,182 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+        client_max_body_size 20M;
     }
 
-    # WebSocket support
-    location /ws {
-        proxy_pass http://wa_gateway_backend;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+    location /health {
+        proxy_pass http://wa_backend;
+    }
+
+    location /docs {
+        proxy_pass http://wa_backend;
     }
 }
 ```
 
-### Apache
-
-```apache
-<VirtualHost *:80>
-    ServerName wa-gateway.yourdomain.com
-
-    ProxyPreserveHost On
-    
-    # Frontend
-    ProxyPass / http://localhost:9000/
-    ProxyPassReverse / http://localhost:9000/
-    
-    # API
-    ProxyPass /api http://localhost:9090/api
-    ProxyPassReverse /api http://localhost:9090/api
-    
-    # WebSocket
-    RewriteEngine on
-    RewriteCond %{HTTP:Upgrade} websocket [NC]
-    RewriteCond %{HTTP:Connection} upgrade [NC]
-    RewriteRule ^/?(.*) "ws://localhost:9090/$1" [P,L]
-</VirtualHost>
+```bash
+sudo ln -s /etc/nginx/sites-available/wa-gateway /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
 ```
 
-## SSL/TLS Setup
+---
 
-### Let's Encrypt
+## 7. SSL/TLS (Let's Encrypt)
 
 ```bash
-# Install certbot
-sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d watpm.tpm.co.id
 
-# Obtain certificate
-sudo certbot --nginx -d wa-gateway.yourdomain.com
-
-# Auto-renewal test
+# Test auto-renewal
 sudo certbot renew --dry-run
 ```
 
-### Manual SSL
+Setelah SSL terpasang, aktifkan redirect HTTP → HTTPS di konfigurasi Nginx.
+
+---
+
+## 8. Monitoring & Health Check
 
 ```bash
-# Generate private key
-sudo openssl genrsa -out /etc/ssl/private/wa-gateway.key 2048
+# Backend health
+curl http://localhost:9090/health
 
-# Generate CSR
-sudo openssl req -new -key /etc/ssl/private/wa-gateway.key -out /tmp/wa-gateway.csr
+# Status PostgreSQL
+sudo systemctl status postgresql
 
-# Generate self-signed certificate (for testing)
-sudo openssl x509 -req -days 365 -in /tmp/wa-gateway.csr -signkey /etc/ssl/private/wa-gateway.key -out /etc/ssl/certs/wa-gateway.crt
+# Cek koneksi database
+PGPASSWORD=wagateway2024 psql -h localhost -U wagatewayuser -d wagateway -c "\dt"
+
+# Cek data sessions
+PGPASSWORD=wagateway2024 psql -h localhost -U wagatewayuser -d wagateway \
+  -c "SELECT id, name, status, phone FROM sessions;"
+
+# Cek kontak
+PGPASSWORD=wagateway2024 psql -h localhost -U wagatewayuser -d wagateway \
+  -c "SELECT session_id, COUNT(*) FROM contacts GROUP BY session_id;"
 ```
 
-Update Nginx config:
+---
 
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name wa-gateway.yourdomain.com;
+## 9. Backup & Recovery
 
-    ssl_certificate /etc/ssl/certs/wa-gateway.crt;
-    ssl_certificate_key /etc/ssl/private/wa-gateway.key;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
+### Script Backup Otomatis
 
-    # ... rest of configuration
-}
-
-server {
-    listen 80;
-    server_name wa-gateway.yourdomain.com;
-    return 301 https://$server_name$request_uri;
-}
-```
-
-## Monitoring
-
-### Using PM2 (Node.js Process Manager)
-
-```bash
-# Install PM2 and serve (for frontend) globally
-sudo npm install -g pm2 serve
-
-# Create ecosystem file
-cat > /opt/wa-gateway/ecosystem.config.js << 'EOF'
-module.exports = {
-  apps: [
-    {
-      name: 'wa-gateway-backend',
-      script: 'src/index.ts',
-      interpreter: '/home/ubuntu/.bun/bin/bun', // Ganti dengan path bun Anda (cek dengan 'which bun')
-      cwd: '/opt/wa-gateway/backend-bun',
-      instances: 1,
-      autorestart: true,
-      watch: false,
-      max_memory_restart: '1G',
-      env: {
-        NODE_ENV: 'production',
-        PORT: 9090,
-        HOST: '0.0.0.0'
-      },
-      log_file: '/var/log/wa-gateway/backend.log',
-      out_file: '/var/log/wa-gateway/out.log',
-      error_file: '/var/log/wa-gateway/error.log'
-    },
-    {
-      name: 'wa-gateway-frontend',
-      script: 'serve',
-      args: '-s dist -l 9000',
-      cwd: '/opt/wa-gateway/frontend',
-      instances: 1,
-      autorestart: true,
-      watch: false,
-      log_file: '/var/log/wa-gateway/frontend.log'
-    }
-  ]
-};
-EOF
-
-# Start with PM2
-sudo mkdir -p /var/log/wa-gateway
-sudo chown -R $USER:$USER /var/log/wa-gateway
-
-pm2 start ecosystem.config.js
-pm2 save
-pm2 startup
-```
-
-### Health Check Endpoint
-
-The application provides a health check at:
-```
-GET /health
-```
-
-Response:
-```json
-{
-  "status": "ok",
-  "version": "1.0.0",
-  "timestamp": "2024-01-01T00:00:00Z"
-}
-```
-
-### Uptime Monitoring
-
-Use UptimeRobot or similar service to monitor:
-- `https://wa-gateway.yourdomain.com/health` (Backend)
-- `https://wa-gateway.yourdomain.com` (Frontend)
-
-## Backup & Recovery
-
-### Automated Backup Script
-
-Create `/opt/wa-gateway/backup.sh`:
+Buat `/opt/wa-gateway-TPM/backup.sh`:
 
 ```bash
 #!/bin/bash
-
 BACKUP_DIR="/opt/backups/wa-gateway"
 DATE=$(date +%Y%m%d_%H%M%S)
 RETENTION_DAYS=30
 
-# Create backup directory
 mkdir -p $BACKUP_DIR
 
-# Backup database
-cp /opt/wa-gateway/backend/data/wagateway.db $BACKUP_DIR/wagateway_$DATE.db
+# Backup PostgreSQL
+PGPASSWORD=wagateway2024 pg_dump -h localhost -U wagatewayuser wagateway \
+  > $BACKUP_DIR/wagateway_$DATE.sql
+gzip $BACKUP_DIR/wagateway_$DATE.sql
 
-# Backup .env
-cp /opt/wa-gateway/backend/.env $BACKUP_DIR/env_$DATE
+# Backup konfigurasi .env
+cp /opt/wa-gateway-TPM/backend-bun/.env $BACKUP_DIR/env_$DATE
 
-# Backup sessions (if any)
-tar -czf $BACKUP_DIR/sessions_$DATE.tar.gz -C /opt/wa-gateway/backend data/
+# Backup WhatsApp session files
+if [ -d "/opt/wa-gateway-TPM/backend-bun/sessions" ]; then
+    tar -czf $BACKUP_DIR/wa_sessions_$DATE.tar.gz \
+      -C /opt/wa-gateway-TPM/backend-bun sessions/
+fi
 
-# Cleanup old backups
+# Hapus backup lama
 find $BACKUP_DIR -type f -mtime +$RETENTION_DAYS -delete
 
-echo "Backup completed: $DATE"
+echo "Backup selesai: $DATE"
 ```
 
-Make executable and schedule:
-
 ```bash
-chmod +x /opt/wa-gateway/backup.sh
+chmod +x /opt/wa-gateway-TPM/backup.sh
 
-# Add to crontab (daily at 2 AM)
-echo "0 2 * * * /opt/wa-gateway/backup.sh" | sudo crontab -
+# Jadwalkan setiap hari jam 02:00
+(crontab -l 2>/dev/null; echo "0 2 * * * /opt/wa-gateway-TPM/backup.sh >> /var/log/wa-gateway-backup.log 2>&1") | crontab -
 ```
 
 ### Recovery
 
 ```bash
-# Stop services
-sudo systemctl stop wa-gateway wa-gateway-frontend
+pm2 stop wa-gateway-backend
 
 # Restore database
-cp /opt/backups/wa-gateway/wagateway_20240101_020000.db /opt/wa-gateway/backend/data/wagateway.db
+gunzip -c /opt/backups/wa-gateway/wagateway_<DATE>.sql.gz | \
+  PGPASSWORD=wagateway2024 psql -h localhost -U wagatewayuser wagateway
 
 # Restore .env
-cp /opt/backups/wa-gateway/env_20240101_020000 /opt/wa-gateway/backend/.env
+cp /opt/backups/wa-gateway/env_<DATE> /opt/wa-gateway-TPM/backend-bun/.env
 
-# Restore sessions
-tar -xzf /opt/backups/wa-gateway/sessions_20240101_020000.tar.gz -C /opt/wa-gateway/backend
+# Restore sessions (opsional)
+tar -xzf /opt/backups/wa-gateway/wa_sessions_<DATE>.tar.gz \
+  -C /opt/wa-gateway-TPM/backend-bun/
 
-# Start services
-sudo systemctl start wa-gateway wa-gateway-frontend
+pm2 restart wa-gateway-backend --update-env
 ```
 
-## Security Hardening
+---
 
-### Firewall (UFW)
+## 10. Security Hardening
 
 ```bash
+# Firewall
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
-sudo ufw allow 22/tcp    # SSH
-sudo ufw allow 80/tcp    # HTTP
-sudo ufw allow 443/tcp   # HTTPS
+sudo ufw allow 22/tcp   # SSH
+sudo ufw allow 80/tcp   # HTTP
+sudo ufw allow 443/tcp  # HTTPS
 sudo ufw enable
-```
 
-### Fail2Ban
-
-```bash
+# Fail2Ban (proteksi brute-force)
 sudo apt install fail2ban
-
-# Create jail for WA Gateway
-sudo tee /etc/fail2ban/jail.local << 'EOF'
-[wa-gateway]
-enabled = true
-port = http,https
-filter = wa-gateway
-logpath = /var/log/wa-gateway/backend.log
-maxretry = 5
-bantime = 3600
-EOF
-
-sudo systemctl restart fail2ban
+sudo systemctl enable fail2ban
+sudo systemctl start fail2ban
 ```
 
-### API Security
+**Checklist Production:**
+- [ ] `JWT_SECRET` diset ke nilai random kuat (`openssl rand -hex 32`)
+- [ ] `API_KEY` diset ke nilai random kuat
+- [ ] `CORS_ORIGIN` diset ke domain spesifik (bukan `*`)
+- [ ] HTTPS aktif dan HTTP redirect ke HTTPS
+- [ ] Firewall aktif
+- [ ] Backup terjadwal
 
-1. Always set a strong `API_KEY` in production
-2. Use HTTPS only
-3. Implement IP whitelisting if possible
-4. Regularly rotate JWT secrets
+---
+
+## 11. Troubleshooting
+
+### Backend crash / tidak mau start
+```bash
+pm2 logs wa-gateway-backend --lines 50 --err
+# Cek apakah PostgreSQL berjalan
+sudo systemctl status postgresql
+```
+
+### QR Code stuck loading
+```bash
+pm2 logs wa-gateway-backend --lines 30
+# Cari "QR code generated" — jika tidak ada, WhatsApp belum generate QR
+# Jika ada, periksa apakah frontend bisa reach backend
+curl http://localhost:9090/health
+```
+
+### Kontak sync tidak berjalan
+```bash
+# Cek apakah session connected
+PGPASSWORD=wagateway2024 psql -h localhost -U wagatewayuser -d wagateway \
+  -c "SELECT name, status FROM sessions;"
+# Session harus berstatus 'connected'
+# Kontak sync berjalan otomatis saat koneksi terbentuk
+```
+
+### Frontend tidak terupdate setelah build
+```bash
+cd /opt/wa-gateway-TPM/frontend
+npm run build
+pm2 restart wa-gateway-frontend
+# Atau clear browser cache (Ctrl+Shift+R)
+```

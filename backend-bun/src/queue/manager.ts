@@ -34,14 +34,14 @@ export class QueueManager {
 
     // ─── FIX: Rescue messages stuck in 'processing' from previous server run ───
     try {
-      const stuckMessages = this.db.getMessagesByStatus('processing', 1000);
+      const stuckMessages = await this.db.getMessagesByStatus('processing', 1000);
       if (stuckMessages.length > 0) {
         logger.warn(`[Queue] Found ${stuckMessages.length} message(s) stuck in 'processing' from previous run. Resetting to 'pending'...`);
         for (const msg of stuckMessages) {
           msg.status = 'pending';
           // Don't penalise attempts for server-restart stuck messages
           msg.attempts = Math.max(0, msg.attempts - 1);
-          this.db.updateMessage(msg);
+          await this.db.updateMessage(msg);
         }
         logger.info(`[Queue] Rescued ${stuckMessages.length} stuck message(s).`);
       }
@@ -57,16 +57,16 @@ export class QueueManager {
     });
 
     // ─── FIX: Check scheduled messages and move to pending when due ───
-    cron.schedule('*/5 * * * * *', () => {
+    cron.schedule('*/5 * * * * *', async () => {
       if (!this.isRunning || this.isPaused) return;
       try {
         // Fetch a batch of scheduled messages
-        const scheduledMessages = this.db.getMessagesByStatus('scheduled', 500);
+        const scheduledMessages = await this.db.getMessagesByStatus('scheduled', 500);
         const now = new Date();
         for (const msg of scheduledMessages) {
           if (msg.scheduledAt && msg.scheduledAt <= now) {
             msg.status = 'pending';
-            this.db.updateMessage(msg);
+            await this.db.updateMessage(msg);
             logger.info(`[Queue] Scheduled message ${msg.id} is now due, moved to pending queue`);
           }
         }
@@ -76,16 +76,16 @@ export class QueueManager {
     });
 
     // ─── FIX: Periodic guardian – rescue any 'processing' message older than 2 min ───
-    this.guardianCronJob = cron.schedule('*/30 * * * * *', () => {
+    this.guardianCronJob = cron.schedule('*/30 * * * * *', async () => {
       if (!this.isRunning) return;
       try {
-        const processingMessages = this.db.getMessagesByStatus('processing', 100);
+        const processingMessages = await this.db.getMessagesByStatus('processing', 100);
         const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
         for (const msg of processingMessages) {
           if (msg.updatedAt.getTime() < twoMinutesAgo && !this.processingMessageIds.has(msg.id)) {
             logger.warn(`[Queue] Guardian: message ${msg.id} stuck in processing >2min, resetting to pending`);
             msg.status = 'pending';
-            this.db.updateMessage(msg);
+            await this.db.updateMessage(msg);
           }
         }
       } catch (err) {
@@ -103,7 +103,7 @@ export class QueueManager {
     logger.info('Queue manager initialized');
   }
 
-  addMessage(message: Omit<Message, 'id' | 'createdAt' | 'updatedAt' | 'attempts'>): Message {
+  async addMessage(message: Omit<Message, 'id' | 'createdAt' | 'updatedAt' | 'attempts'>): Promise<Message> {
     logger.info(`[Queue] Adding message: sessionId=${message.sessionId}, to=${message.to}, type=${message.type}`);
 
     // Apply spintax if enabled
@@ -117,8 +117,8 @@ export class QueueManager {
     let scheduledAt: Date | undefined = message.scheduledAt;
 
     if (message.delayEnabled) {
-      const session = this.db.getSession(message.sessionId);
-      const settings = session?.userId ? this.db.getAntiBlockSettings(session.userId) : null;
+      const session = await this.db.getSession(message.sessionId);
+      const settings = session?.userId ? await this.db.getAntiBlockSettings(session.userId) : null;
       if (settings?.delayEnabled) {
         const minDelay = settings.minDelay * 1000;
         const maxDelay = settings.maxDelay * 1000;
@@ -132,7 +132,7 @@ export class QueueManager {
       }
     }
 
-    const msg = this.db.createMessage({
+    const msg = await this.db.createMessage({
       ...message,
       content,
       status: message.status || 'pending',
@@ -148,7 +148,7 @@ export class QueueManager {
 
   private async processQueue(): Promise<void> {
     // Ambil semua pesan pending
-    const allMessages = this.db.getMessagesByStatus('pending', 100);
+    const allMessages = await this.db.getMessagesByStatus('pending', 100);
 
     if (allMessages.length === 0) return;
 
@@ -164,13 +164,13 @@ export class QueueManager {
       // Skip jika belum waktunya (scheduled)
       if (message.scheduledAt && new Date() < message.scheduledAt) continue;
 
-      const session = this.db.getSession(message.sessionId);
+      const session = await this.db.getSession(message.sessionId);
       const userId = session?.userId || 'default';
 
       // Rate limiting per user check
-      const settings = userId !== 'default' ? this.db.getAntiBlockSettings(userId) : null;
+      const settings = userId !== 'default' ? await this.db.getAntiBlockSettings(userId) : null;
       if (settings?.rateLimitEnabled) {
-        if (!this.canSend(message.sessionId, settings)) continue;
+        if (!await this.canSend(message.sessionId, settings)) continue;
       }
 
       if (!messagesByUser.has(userId)) {
@@ -201,7 +201,8 @@ export class QueueManager {
       this.processingMessageIds.add(message.id);
       
       try {
-        logger.info(`[Queue] Processing ${message.type} to ${message.to} (User: ${this.db.getSession(message.sessionId)?.userId})`);
+        const sess = await this.db.getSession(message.sessionId);
+        logger.info(`[Queue] Processing ${message.type} to ${message.to} (User: ${sess?.userId})`);
         await this.processMessage(message);
       } catch (error) {
         logger.error(`[Queue] Error processing message ${message.id}:`, error);
@@ -217,7 +218,7 @@ export class QueueManager {
     // Update to processing
     message.status = 'processing';
     message.attempts++;
-    this.db.updateMessage(message);
+    await this.db.updateMessage(message);
 
     logger.info(`[Queue] Message ${message.id} attempt #${message.attempts}`);
 
@@ -239,7 +240,7 @@ export class QueueManager {
       } else {
         logger.warn(`[Queue] Message ${message.id} retrying (attempt ${message.attempts}/3)`);
       }
-      this.db.updateMessage(message);
+      await this.db.updateMessage(message);
       return;
     }
 
@@ -276,6 +277,14 @@ export class QueueManager {
                 caption: message.caption
               }
             );
+          case 'vcard':
+            logger.info(`[Queue] Sending ${message.type} message to ${message.to}`);
+            return await this.connectionManager.sendContactMessage(
+              message.sessionId,
+              message.to,
+              message.contactName,
+              message.contactPhone
+            );
           default:
             throw new Error(`Unsupported message type: ${message.type}`);
         }
@@ -293,7 +302,7 @@ export class QueueManager {
       logger.info(`[Queue] Message ${message.id} sent successfully: ${messageId}`);
 
       // ─── FIX: Save messageId to DB immediately after success ───
-      this.db.updateMessage({ id: message.id, status: 'completed', messageId: messageId, attempts: message.attempts });
+      await this.db.updateMessage({ id: message.id, status: 'completed', messageId: messageId, attempts: message.attempts });
 
       this.webhookDispatcher.dispatch('message.sent', {
         messageId: message.id,
@@ -333,10 +342,10 @@ export class QueueManager {
       }
     }
 
-    this.db.updateMessage(message);
+    await this.db.updateMessage(message);
   }
 
-  private canSend(sessionId: string, settings: any): boolean {
+  private async canSend(sessionId: string, settings: any): Promise<boolean> {
     if (!settings?.rateLimitEnabled) return true;
 
     try {
@@ -345,7 +354,7 @@ export class QueueManager {
       // Check per minute limit
       if (settings.messagesPerMinute > 0) {
         const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
-        const SentInLastMinute = this.db.getMessagesCountInTimeRange(sessionId, oneMinuteAgo, now);
+        const SentInLastMinute = await this.db.getMessagesCountInTimeRange(sessionId, oneMinuteAgo, now);
 
         if (SentInLastMinute >= settings.messagesPerMinute) {
           logger.debug(`[Queue] Rate limit per minute exceeded for ${sessionId} (${SentInLastMinute}/${settings.messagesPerMinute})`);
@@ -356,7 +365,7 @@ export class QueueManager {
       // Check per hour limit
       if (settings.messagesPerHour > 0) {
         const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-        const SentInLastHour = this.db.getMessagesCountInTimeRange(sessionId, oneHourAgo, now);
+        const SentInLastHour = await this.db.getMessagesCountInTimeRange(sessionId, oneHourAgo, now);
 
         if (SentInLastHour >= settings.messagesPerHour) {
           logger.debug(`[Queue] Rate limit per hour exceeded for ${sessionId} (${SentInLastHour}/${settings.messagesPerHour})`);
@@ -386,23 +395,23 @@ export class QueueManager {
     return this.isPaused;
   }
 
-  retryFailed(userId?: string): void {
-    const messages = this.db.getMessagesByStatus('failed', 100, userId);
+  async retryFailed(userId?: string): Promise<void> {
+    const messages = await this.db.getMessagesByStatus('failed', 100, userId);
     for (const message of messages) {
       message.status = 'pending';
       message.attempts = 0;
       message.error = undefined;
-      this.db.updateMessage(message);
+      await this.db.updateMessage(message);
     }
     logger.info(`Retrying ${messages.length} failed messages`);
   }
 
-  clear(status: string, userId?: string): void {
-    this.db.deleteMessagesByStatus(status, userId);
+  async clear(status: string, userId?: string): Promise<void> {
+    await this.db.deleteMessagesByStatus(status, userId);
     logger.info(`Cleared ${status} messages`);
   }
 
-  getStats(userId?: string): Record<string, number> {
+  async getStats(userId?: string): Promise<Record<string, number>> {
     return this.db.getQueueStats(userId);
   }
 

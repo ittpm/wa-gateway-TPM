@@ -175,10 +175,10 @@ X-API-Key: YOUR_MASTER_API_KEY
 
 # Response:
 {
-  "id": "uuid-session",
+  "id": "8926a5b8-cf18-4081-9cdd-c678bd760410",  ← UUID dibuat OTOMATIS, tidak perlu diinput
   "name": "Akun Bisnis Saya",
   "status": "connecting",
-  "token": "wak_abc123_...",  ← simpan ini sebagai API Key
+  "apiKey": "wak_8926a5_b2872e786a734007b7dda9ab0a096ae9",  ← simpan ini!
   "message": "Session dibuat. Scan QR untuk menghubungkan."
 }`} />
                         </StepCard>
@@ -200,10 +200,10 @@ X-API-Key: wak_abc123_...
                             <p className="text-sm text-gray-600 mb-2">Setelah terhubung, langsung kirim pesan:</p>
                             <CodeBlock code={`POST /api/v1/messages/send
 Content-Type: application/json
-X-API-Key: wak_abc123_...
+X-API-Key: wak_8926a5_b2872e786a734007b7dda9ab0a096ae9
 
+# ✅ sessionId TIDAK perlu diisi — sudah otomatis terdeteksi dari API Key di atas!
 {
-  "sessionId": "uuid-session",
   "to": "6281234567890",
   "type": "text",
   "message": "Halo dari aplikasi saya! 🎉",
@@ -212,7 +212,7 @@ X-API-Key: wak_abc123_...
 
 # Response:
 {
-  "messageId": "uuid-msg",
+  "messageId": "msg-7f3a2b1c-...",   ← ID pesan dibuat otomatis
   "status": "queued",
   "message": "Pesan telah ditambahkan ke antrean"
 }`} />
@@ -276,8 +276,10 @@ curl_setopt($ch, CURLOPT_HTTPHEADER, ['X-API-Key: wak_abc123_xxx']);`} />
                                     Pesan Teks
                                 </h4>
                                 <CodeBlock code={`POST /api/v1/messages/send
+X-API-Key: wak_8926a5_b2872e786a734007b7dda9ab0a096ae9
+
+# ✅ sessionId tidak perlu — otomatis dari API Key
 {
-  "sessionId": "uuid-session",
   "to": "6281234567890",
   "type": "text",
   "message": "Halo! Selamat datang di toko kami 🛍️",
@@ -291,8 +293,10 @@ curl_setopt($ch, CURLOPT_HTTPHEADER, ['X-API-Key: wak_abc123_xxx']);`} />
                                     Pesan Gambar/Video (via URL)
                                 </h4>
                                 <CodeBlock code={`POST /api/v1/messages/send
+X-API-Key: wak_8926a5_b2872e786a734007b7dda9ab0a096ae9
+
+# ✅ sessionId tidak perlu — otomatis dari API Key
 {
-  "sessionId": "uuid-session",
   "to": "6281234567890",
   "type": "image",
   "mediaUrl": "https://example.com/promo-banner.jpg",
@@ -307,8 +311,10 @@ curl_setopt($ch, CURLOPT_HTTPHEADER, ['X-API-Key: wak_abc123_xxx']);`} />
                                     Pesan Dokumen (via URL)
                                 </h4>
                                 <CodeBlock code={`POST /api/v1/messages/send
+X-API-Key: wak_8926a5_b2872e786a734007b7dda9ab0a096ae9
+
+# ✅ sessionId tidak perlu — otomatis dari API Key
 {
-  "sessionId": "uuid-session",
   "to": "6281234567890",
   "type": "document",
   "mediaUrl": "https://example.com/invoice.pdf",
@@ -324,8 +330,10 @@ curl_setopt($ch, CURLOPT_HTTPHEADER, ['X-API-Key: wak_abc123_xxx']);`} />
                                     Kirim ke Banyak Nomor (Bulk)
                                 </h4>
                                 <CodeBlock code={`POST /api/v1/messages/bulk
+X-API-Key: wak_8926a5_b2872e786a734007b7dda9ab0a096ae9
+
+# ✅ sessionId tidak perlu — otomatis dari API Key
 {
-  "sessionId": "uuid-session",
   "recipients": ["6281234567890", "6289876543210", "6285123456789"],
   "message": "Halo {teman|saudara|pelanggan}, ada promo spesial hari ini!",
   "useSpintax": true,
@@ -350,10 +358,11 @@ X-API-Key: wak_abc123_xxx
 # Response:
 [
   {
-    "id": "uuid-session",
+    "id": "8926a5b8-cf18-4081-9cdd-c678bd760410",  ← UUID dibuat sistem, bukan input user
     "name": "Akun Bisnis",
     "phone": "6281234567890",
     "status": "connected",   ← "connected" | "disconnected" | "qr" | "connecting"
+    "apiKey": "wak_8926a5_b2872e786a734007b7dda9ab0a096ae9",  ← gunakan ini untuk kirim pesan
     "messageCount": 250,
     "createdAt": "2024-01-15T08:30:00Z"
   }
@@ -542,12 +551,14 @@ app.post('/webhook/whatsapp', (req, res) => {
                             <div>
                                 <h4 className="text-sm font-bold text-gray-700 mb-2">📝 Schedule Pesan Teks</h4>
                                 <CodeBlock code={`POST /api/v1/messages/send
+X-API-Key: wak_8926a5_b2872e786a734007b7dda9ab0a096ae9
+
+# ✅ sessionId tidak perlu — otomatis dari API Key
 {
-  "sessionId": "uuid-session",
   "to": "6281234567890",
   "type": "text",
   "message": "Selamat pagi! Reminder tagihan bulan ini.",
-  "scheduledAt": "2024-12-25T08:00:00+07:00",  ← waktu kirim
+  "scheduledAt": "2024-12-25T08:00:00+07:00",  ← waktu kirim (format ISO 8601)
   "delay": false
 }`} />
                             </div>
@@ -557,17 +568,17 @@ app.post('/webhook/whatsapp', (req, res) => {
                                 <p className="text-sm text-gray-600 mb-2">Untuk attachment lokal (upload file + schedule):</p>
                                 <CodeBlock code={`POST /api/v1/messages/upload-scheduled
 Content-Type: multipart/form-data
+X-API-Key: wak_8926a5_b2872e786a734007b7dda9ab0a096ae9
 
-# Fields:
-sessionId  = "uuid-session"
-to         = "6281234567890"
-caption    = "Laporan bulan ini terlampir"
+# Fields (sessionId TIDAK perlu jika pakai Per-Session API Key):
+to          = "6281234567890"
+caption     = "Laporan bulan ini terlampir"
 scheduledAt = "2024-12-25T08:00:00.000Z"   ← ISO format UTC
-file       = [binary file / gambar / PDF]
+file        = [binary file / gambar / PDF]
 
 # Response:
 {
-  "messageId": "uuid-msg",
+  "messageId": "msg-7f3a2b1c-...",   ← ID dibuat otomatis
   "status": "scheduled",
   "fileName": "laporan.pdf",
   "fileType": "document",
@@ -617,8 +628,10 @@ DELETE /api/v1/queue/{messageId}`} />
                             <div>
                                 <h4 className="text-sm font-bold text-gray-700 mb-2">Nonaktifkan Delay (Tanpa Jeda)</h4>
                                 <CodeBlock code={`POST /api/v1/messages/send
+X-API-Key: wak_8926a5_b2872e786a734007b7dda9ab0a096ae9
+
+# ✅ sessionId tidak perlu — otomatis dari API Key
 {
-  "sessionId": "uuid-session",
   "to": "6281234567890",
   "type": "text",
   "message": "Pesan urgent dari sistem!",

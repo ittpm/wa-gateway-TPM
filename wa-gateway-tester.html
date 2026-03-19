@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WA Gateway Tester</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0d0f1a;
+      --panel:   #131629;
+      --card:    #1a1e35;
+      --border:  #252c4a;
+      --border2: #2e3760;
+      --green:   #25d366;
+      --green2:  #128c7e;
+      --glow:    rgba(37,211,102,.15);
+      --blue:    #4d9fff;
+      --orange:  #ff9f43;
+      --red:     #ff5252;
+      --text:    #dde2f5;
+      --muted:   #8891b5;
+      --mono:    'JetBrains Mono', monospace;
+    }
+
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ── TOP BAR ── */
+    .topbar {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .logo { width: 32px; height: 32px; background: linear-gradient(135deg,var(--green),var(--green2)); border-radius: 8px; display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 0 16px var(--glow); }
+    .topbar h1 { font-size: 15px; font-weight: 600; }
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .pill { padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; background: rgba(255,82,82,.12); color: var(--red); border: 1px solid rgba(255,82,82,.3); display: flex; align-items: center; gap: 5px; }
+    .pill.ok { background: rgba(37,211,102,.1); color: var(--green); border-color: rgba(37,211,102,.3); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: blink 2s infinite; }
+    @keyframes blink { 0%,100%{opacity:1}50%{opacity:.3} }
+
+    /* ── CONFIG BAR ── */
+    .configbar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .cfg-label { font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+    .cfg-input {
+      flex: 1;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 7px 12px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+      min-width: 0;
+    }
+    .cfg-input:focus { border-color: var(--green); box-shadow: 0 0 0 3px var(--glow); }
+    .cfg-input::placeholder { color: #3d4770; }
+    .divider-v { width: 1px; height: 24px; background: var(--border); flex-shrink: 0; }
+    .btn-connect { padding: 7px 18px; background: linear-gradient(135deg,var(--green),var(--green2)); color:#fff; border:none; border-radius:7px; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap; transition:all .2s; box-shadow:0 2px 10px var(--glow); }
+    .btn-connect:hover { transform:translateY(-1px); }
+    .btn-connect:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+
+    /* ── MAIN LAYOUT ── */
+    .workspace { display: flex; flex: 1; overflow: hidden; }
+
+    /* sidebar */
+    .sidebar { width: 240px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar-section { padding: 12px 14px 8px; border-bottom: 1px solid var(--border); }
+    .sidebar-title { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    .session-item { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 8px; cursor: pointer; transition: background .15s; margin-bottom: 4px; border: 1px solid transparent; }
+    .session-item:hover { background: var(--card); }
+    .session-item.active { background: rgba(37,211,102,.08); border-color: rgba(37,211,102,.25); }
+    .s-avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg,var(--green),var(--green2)); display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0; }
+    .s-name { font-size: 13px; font-weight: 500; }
+    .s-status { font-size: 10px; margin-top: 1px; }
+    .s-status.connected { color: var(--green); }
+    .s-status.connecting { color: var(--orange); }
+    .s-status.disconnected { color: var(--red); }
+    .check-mark { margin-left: auto; color: var(--green); font-size: 16px; }
+
+    .stats-area { padding: 12px 14px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; border-bottom: 1px solid var(--border); }
+    .stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 6px; text-align: center; }
+    .stat-v { font-size: 18px; font-weight: 700; color: var(--green); }
+    .stat-l { font-size: 9px; color: var(--muted); margin-top: 1px; }
+
+    .log-area { flex: 1; overflow-y: auto; padding: 10px 14px; }
+    .log-entry { font-family: var(--mono); font-size: 10.5px; margin-bottom: 5px; padding: 5px 8px; border-radius: 5px; border-left: 2px solid; line-height: 1.5; }
+    .log-entry.ok { border-color: var(--green); background: rgba(37,211,102,.05); color: #8eedb0; }
+    .log-entry.err { border-color: var(--red); background: rgba(255,82,82,.05); color: #ff9999; }
+    .log-time { color: var(--muted); margin-right: 5px; }
+
+    /* main panel */
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* request builder */
+    .req-bar { background: var(--card); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+    .method-select { background: var(--panel); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; color: var(--blue); font-family: var(--mono); font-size: 12px; font-weight: 700; outline: none; cursor: pointer; }
+    .url-input { flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 7px; padding: 7px 12px; color: var(--text); font-family: var(--mono); font-size: 12px; outline: none; transition: border-color .2s; }
+    .url-input:focus { border-color: var(--blue); }
+    .btn-send { padding: 7px 20px; background: var(--blue); color:#fff; border:none; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; transition:all .2s; white-space:nowrap; }
+    .btn-send:hover { background: #3d8ee8; }
+    .btn-send:disabled { opacity:.5; cursor:not-allowed; }
+
+    /* tabs */
+    .tab-bar { background: var(--panel); border-bottom: 1px solid var(--border); display: flex; gap: 0; padding: 0 16px; flex-shrink: 0; }
+    .tab-btn { padding: 10px 16px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s; }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--green); border-bottom-color: var(--green); }
+
+    /* body editor */
+    .body-area { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+    .pane { display: flex; flex-direction: column; overflow: hidden; }
+    .pane + .pane { border-left: 1px solid var(--border); }
+    .pane-label { padding: 8px 14px; font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .pane-label .status-code { margin-left: auto; font-size: 12px; font-weight: 700; font-family: var(--mono); }
+    .pane-label .status-code.ok { color: var(--green); }
+    .pane-label .status-code.err { color: var(--red); }
+    .code-editor {
+      flex: 1;
+      background: var(--panel);
+      border: none;
+      resize: none;
+      padding: 14px;
+      color: #a8d8b0;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.7;
+      outline: none;
+      overflow-y: auto;
+    }
+    .response-view {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.7;
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .response-view.ok { color: #7ee8a2; }
+    .response-view.err { color: #ff8e8e; }
+    .response-view.loading { color: var(--orange); }
+
+    /* quick actions */
+    .quick-bar { background: var(--card); border-top: 1px solid var(--border); padding: 8px 16px; display: flex; gap: 8px; align-items: center; flex-shrink: 0; overflow-x: auto; }
+    .quick-bar span { font-size: 10px; font-weight: 600; color: var(--muted); white-space: nowrap; margin-right: 4px; }
+    .qbtn { padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--panel); color: var(--text); transition: all .15s; white-space: nowrap; }
+    .qbtn:hover { border-color: var(--green); color: var(--green); }
+    .qbtn.danger:hover { border-color: var(--red); color: var(--red); }
+
+    .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .toast-wrap { position: fixed; bottom: 18px; right: 18px; z-index: 999; display: flex; flex-direction: column; gap: 8px; }
+    .toast { background: var(--card); border: 1px solid var(--border); border-radius: 9px; padding: 10px 16px; font-size: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.6); animation: tin .25s ease; max-width: 320px; }
+    .toast.ok { border-left: 3px solid var(--green); }
+    .toast.err { border-left: 3px solid var(--red); }
+    @keyframes tin { from{transform:translateX(120%);opacity:0} to{transform:none;opacity:1} }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="logo">📱</div>
+  <h1>WA Gateway Tester</h1>
+  <div class="topbar-right">
+    <div class="pill" id="connPill"><span class="dot"></span><span id="connText">Disconnected</span></div>
+  </div>
+</div>
+
+<!-- CONFIG BAR: Base URL + Token -->
+<div class="configbar">
+  <span class="cfg-label">BASE URL</span>
+  <input class="cfg-input" id="baseUrl" value="https://watpm.tpm.co.id/api/v1" placeholder="https://your-gateway.com/api/v1" style="max-width:300px" />
+  <div class="divider-v"></div>
+  <span class="cfg-label">TOKEN</span>
+  <input class="cfg-input" id="token" placeholder="Bearer eyJhbGci... atau wak_xxx..." />
+  <button class="btn-connect" id="connectBtn" onclick="connect()">⚡ Connect</button>
+</div>
+
+<!-- WORKSPACE -->
+<div class="workspace">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="stats-area">
+      <div class="stat"><div class="stat-v" id="sReq">0</div><div class="stat-l">Requests</div></div>
+      <div class="stat"><div class="stat-v" id="sOk" style="color:var(--green)">0</div><div class="stat-l">OK</div></div>
+      <div class="stat"><div class="stat-v" id="sFail" style="color:var(--red)">0</div><div class="stat-l">Error</div></div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-title">📱 Sessions</div>
+      <div id="sessionList">
+        <div style="color:var(--muted);font-size:11px;text-align:center;padding:12px 0">Connect dulu →</div>
+      </div>
+    </div>
+
+    <div style="padding:10px 14px 6px;border-bottom:1px solid var(--border)">
+      <div class="sidebar-title">Request Log</div>
+    </div>
+    <div class="log-area" id="logArea">
+      <div style="color:var(--muted);font-size:11px;text-align:center;padding:12px 0">—</div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- REQUEST BAR -->
+    <div class="req-bar">
+      <select class="method-select" id="methodSel" onchange="onMethodChange()">
+        <option style="color:#25d366">POST</option>
+        <option style="color:#4d9fff">GET</option>
+      </select>
+      <input class="url-input" id="urlInput" value="/messages/send" placeholder="/endpoint" />
+      <button class="btn-send" id="sendBtn" onclick="sendRequest()">▶ Send</button>
+    </div>
+
+    <!-- TABS -->
+    <div class="tab-bar">
+      <div class="tab-btn active" onclick="switchTab('body',this)">Body</div>
+      <div class="tab-btn" onclick="switchTab('headers',this)">Headers</div>
+    </div>
+
+    <!-- BODY AREA -->
+    <div class="body-area">
+      <!-- LEFT: Request editor -->
+      <div class="pane">
+        <div class="pane-label">REQUEST BODY <span style="margin-left:auto;color:var(--muted);font-size:10px">JSON</span></div>
+        <textarea class="code-editor" id="reqBody" spellcheck="false">{
+  "sessionId": "← pilih session di kiri",
+  "to": "6281234567890",
+  "type": "text",
+  "message": "Halo! Test dari WA Gateway API 🚀",
+  "delay": true
+}</textarea>
+      </div>
+
+      <!-- RIGHT: Response viewer -->
+      <div class="pane">
+        <div class="pane-label">
+          RESPONSE
+          <span id="respCode" class="status-code" style="margin-left:auto"></span>
+          <span id="respTime" style="font-size:10px;color:var(--muted);margin-left:8px"></span>
+        </div>
+        <div class="response-view" id="respView">Tekan Send untuk melihat response...</div>
+      </div>
+    </div>
+
+    <!-- QUICK ACTIONS -->
+    <div class="quick-bar">
+      <span>Template:</span>
+      <button class="qbtn" onclick="tpl('send_text')">✉️ Kirim Teks</button>
+      <button class="qbtn" onclick="tpl('send_image')">🖼️ Kirim Gambar</button>
+      <button class="qbtn" onclick="tpl('bulk')">🚀 Bulk Blast</button>
+      <button class="qbtn" onclick="tpl('sessions')">📱 List Sessions</button>
+      <button class="qbtn" onclick="tpl('queue')">📋 Queue Stats</button>
+      <button class="qbtn" onclick="tpl('validate')">✅ Validasi Nomor</button>
+      <button class="qbtn" onclick="tpl('contacts')">👥 Contacts</button>
+      <button class="qbtn danger" onclick="tpl('delete_history')">🗑️ Hapus History</button>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script>
+  let selectedSession = null;
+  let st = { req:0, ok:0, fail:0 };
+
+  // ── Template payloads ──
+  const templates = {
+    send_text: {
+      method: 'POST', url: '/messages/send',
+      body: { sessionId: '', to: '6281234567890', type: 'text', message: 'Halo! Test dari WA Gateway API 🚀', delay: true }
+    },
+    send_image: {
+      method: 'POST', url: '/messages/send',
+      body: { sessionId: '', to: '6281234567890', type: 'image', mediaUrl: 'https://example.com/image.jpg', caption: 'Cek gambar ini!', delay: true }
+    },
+    bulk: {
+      method: 'POST', url: '/messages/bulk',
+      body: { sessionId: '', recipients: ['6281234567890','6289876543210'], message: '{Halo|Hai|Selamat pagi}! Test blast 🚀', useSpintax: true, delay: true }
+    },
+    sessions: { method: 'GET', url: '/sessions', body: null },
+    queue: { method: 'GET', url: '/queue/stats', body: null },
+    validate: {
+      method: 'POST', url: '/validate-numbers',
+      body: { sessionId: '', numbers: ['6281234567890','6289876543210'] }
+    },
+    contacts: { method: 'GET', url: '/sessions/SESSION_ID/contacts?limit=10', body: null },
+    delete_history: { method: 'DELETE', url: '/messages?status=all', body: null }
+  };
+
+  function tpl(name) {
+    const t = templates[name];
+    if (!t) return;
+
+    // apply method
+    document.getElementById('methodSel').value = t.method;
+    onMethodChange();
+
+    // fill session id if placeholder
+    let b = t.body ? JSON.parse(JSON.stringify(t.body)) : null;
+    if (b && b.sessionId === '' && selectedSession) b.sessionId = selectedSession.id;
+    if (b && b.sessionId === '') b.sessionId = '← pilih session di kiri';
+
+    let url = t.url;
+    if (url.includes('SESSION_ID') && selectedSession) url = url.replace('SESSION_ID', selectedSession.id);
+
+    document.getElementById('urlInput').value = url;
+    document.getElementById('reqBody').value = b ? JSON.stringify(b, null, 2) : '';
+  }
+
+  function onMethodChange() {
+    const isGet = document.getElementById('methodSel').value === 'GET';
+    document.getElementById('reqBody').disabled = isGet;
+    document.getElementById('reqBody').style.opacity = isGet ? '0.4' : '1';
+  }
+
+  function getBaseUrl() { return document.getElementById('baseUrl').value.trim().replace(/\/$/, ''); }
+  function getToken() { return document.getElementById('token').value.trim(); }
+  function authHeader() {
+    const t = getToken();
+    if (!t) return {};
+    if (t.startsWith('wak_') || t.startsWith('wag_')) return { 'x-api-key': t };
+    if (t.startsWith('Bearer ')) return { 'Authorization': t };
+    return { 'Authorization': 'Bearer ' + t };
+  }
+
+  async function apiFetch(path, opts = {}) {
+    const url = getBaseUrl() + path;
+    const headers = { 'Content-Type': 'application/json', ...authHeader(), ...(opts.headers||{}) };
+    st.req++; updateStats();
+    const t0 = Date.now();
+    try {
+      const r = await fetch(url, { ...opts, headers });
+      const d = await r.json().catch(() => ({}));
+      const ms = Date.now() - t0;
+      r.ok ? st.ok++ : st.fail++;
+      updateStats();
+      addLog(r.ok ? 'ok' : 'err', `${opts.method||'GET'} ${path} → ${r.status} (${ms}ms)`);
+      return { ok: r.ok, status: r.status, d, ms };
+    } catch (e) {
+      st.fail++; updateStats();
+      addLog('err', `${path} → ${e.message}`);
+      return { ok: false, status: 0, d: { error: e.message }, ms: Date.now()-t0 };
+    }
+  }
+
+  async function connect() {
+    const btn = document.getElementById('connectBtn');
+    btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true;
+
+    const { ok, d } = await apiFetch('/sessions');
+
+    btn.innerHTML = '⚡ Connect'; btn.disabled = false;
+
+    if (ok) {
+      setConnected(true);
+      renderSessions(Array.isArray(d) ? d : (d.sessions || []));
+      toast('✅ Terhubung ke gateway!', 'ok');
+    } else {
+      setConnected(false);
+      toast('❌ Gagal terhubung: ' + (d.error || 'Cek Base URL & Token'), 'err');
+    }
+  }
+
+  function renderSessions(sessions) {
+    const list = document.getElementById('sessionList');
+    if (!sessions.length) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:10px 0">Belum ada session</div>';
+      return;
+    }
+    list.innerHTML = sessions.map(s => `
+      <div class="session-item ${selectedSession?.id===s.id?'active':''}" onclick="selectSession('${s.id}','${s.name}','${s.status}')">
+        <div class="s-avatar">${s.name.charAt(0).toUpperCase()}</div>
+        <div style="flex:1;min-width:0">
+          <div class="s-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</div>
+          <div class="s-status ${s.status}">● ${s.status}</div>
+        </div>
+        ${selectedSession?.id===s.id ? '<div class="check-mark">✓</div>' : ''}
+      </div>
+    `).join('');
+
+    // auto-select connected
+    if (!selectedSession) {
+      const c = sessions.find(s => s.status === 'connected') || sessions[0];
+      if (c) selectSession(c.id, c.name, c.status);
+    }
+  }
+
+  function selectSession(id, name, status) {
+    selectedSession = { id, name, status };
+    // update all template sessionIds in editor if currently showing one
+    try {
+      const cur = JSON.parse(document.getElementById('reqBody').value);
+      if ('sessionId' in cur) { cur.sessionId = id; document.getElementById('reqBody').value = JSON.stringify(cur, null, 2); }
+    } catch {}
+    // re-render
+    document.querySelectorAll('.session-item').forEach(el => {
+      const isThis = el.onclick?.toString().includes(`'${id}'`);
+      el.classList.toggle('active', isThis);
+      const mark = el.querySelector('.check-mark');
+      if (isThis && !mark) { const m = document.createElement('div'); m.className='check-mark'; m.textContent='✓'; el.appendChild(m); }
+      else if (!isThis && mark) mark.remove();
+    });
+    toast(`📱 "${name}" dipilih`, 'ok');
+  }
+
+  async function sendRequest() {
+    const method = document.getElementById('methodSel').value;
+    const path   = document.getElementById('urlInput').value.trim();
+    const rawBody = document.getElementById('reqBody').value.trim();
+
+    // validate JSON if POST
+    if (method === 'POST' && rawBody) {
+      try { JSON.parse(rawBody); } catch {
+        toast('❌ JSON tidak valid di Request Body', 'err'); return;
+      }
+    }
+
+    const btn = document.getElementById('sendBtn');
+    btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true;
+
+    const rv = document.getElementById('respView');
+    rv.textContent = '⏳ Menunggu response...'; rv.className = 'response-view loading';
+    document.getElementById('respCode').textContent = '';
+    document.getElementById('respTime').textContent = '';
+
+    const opts = method === 'POST' ? { method, body: rawBody } : { method };
+    const { ok, status, d, ms } = await apiFetch(path, opts);
+
+    rv.textContent = JSON.stringify(d, null, 2);
+    rv.className = 'response-view ' + (ok ? 'ok' : 'err');
+
+    const codeEl = document.getElementById('respCode');
+    codeEl.textContent = status;
+    codeEl.className = 'status-code ' + (ok ? 'ok' : 'err');
+    document.getElementById('respTime').textContent = ms + 'ms';
+
+    btn.innerHTML = '▶ Send'; btn.disabled = false;
+
+    if (ok) toast('✅ ' + status + ' OK (' + ms + 'ms)', 'ok');
+    else toast('❌ ' + status + ': ' + (d.error || 'Error'), 'err');
+  }
+
+  // ── helpers ──
+  function setConnected(v) {
+    const p = document.getElementById('connPill');
+    p.className = 'pill ' + (v ? 'ok' : '');
+    document.getElementById('connText').textContent = v ? 'Connected' : 'Disconnected';
+  }
+
+  function updateStats() {
+    document.getElementById('sReq').textContent = st.req;
+    document.getElementById('sOk').textContent  = st.ok;
+    document.getElementById('sFail').textContent = st.fail;
+  }
+
+  function addLog(type, msg) {
+    const el = document.getElementById('logArea');
+    const empty = el.querySelector('[style*="padding:12px"]');
+    if (empty) empty.remove();
+    const e = document.createElement('div');
+    e.className = 'log-entry ' + type;
+    const t = new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    e.innerHTML = `<span class="log-time">[${t}]</span>${msg}`;
+    el.insertBefore(e, el.firstChild);
+    if (el.children.length > 20) el.removeChild(el.lastChild);
+  }
+
+  function toast(msg, type='ok') {
+    const c = document.getElementById('toasts');
+    const e = document.createElement('div');
+    e.className = 'toast ' + type; e.textContent = msg;
+    c.appendChild(e);
+    setTimeout(() => e.remove(), 3000);
+  }
+
+  // default template on load
+  tpl('send_text');
+</script>
+</body>
+</html>

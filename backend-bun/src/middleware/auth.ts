@@ -50,15 +50,20 @@ export function createAuthMiddleware(db?: Database) {
 
         // 3. Per-session API Key (wak_...) → scoped access to that session only
         if (apiKey && apiKey.startsWith('wak_') && db) {
-            const session = db.getSessionByApiKey(apiKey);
-            if (session) {
-                req.user = { id: 'session', username: `session:${session.name}`, role: 'session' };
-                req.sessionApiKeyId = session.id;
-                logger.debug(`[Auth] Session API key accepted for session: ${session.id}`);
-                return next();
-            }
-            logger.warn(`[Auth] Invalid session API key attempt: ${apiKey.substring(0, 15)}...`);
-            return res.status(401).json({ error: 'Invalid session API key' });
+            Promise.resolve(db.getSessionByApiKey(apiKey)).then(session => {
+                if (session) {
+                    req.user = { id: 'session', username: `session:${session.name}`, role: 'session' };
+                    req.sessionApiKeyId = session.id;
+                    logger.debug(`[Auth] Session API key accepted for session: ${session.id}`);
+                    return next();
+                }
+                logger.warn(`[Auth] Invalid session API key attempt: ${apiKey.substring(0, 15)}...`);
+                return res.status(401).json({ error: 'Invalid session API key' });
+            }).catch(err => {
+                logger.error('[Auth] Error looking up session API key:', err);
+                return res.status(500).json({ error: 'Internal auth error' });
+            });
+            return;
         }
 
         // 4. Legacy session token (wag_...) — kept for backward compatibility

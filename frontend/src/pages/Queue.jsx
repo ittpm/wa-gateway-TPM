@@ -39,14 +39,24 @@ function Queue() {
     } catch { }
   }
 
-  const fetchQueue = async () => {
+  const fetchQueue = async (filterOverride) => {
+    const filter = filterOverride !== undefined ? filterOverride : activeFilter
     try {
       const [queueRes, statsRes] = await Promise.all([
-        api.get('/queue'),
+        // Jika ada filter aktif, ambil dari /messages?status=X (semua status tersedia)
+        // Jika tidak ada filter, ambil antrean aktif dari /queue (pending+processing+scheduled)
+        filter
+          ? api.get('/messages', { params: { status: filter, limit: 100 } })
+          : api.get('/queue'),
         api.get('/queue/stats'),
       ])
-      const q = queueRes.data
-      setQueue(Array.isArray(q) ? q : Array.isArray(q?.data) ? q.data : [])
+      // /messages returns { data: [...], pagination: {...} }
+      // /queue returns array langsung
+      const raw = queueRes.data
+      const q = filter
+        ? (Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : [])
+        : (Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [])
+      setQueue(q)
       setStats(prev => ({
         ...prev,
         ...(statsRes.data && typeof statsRes.data === 'object' ? statsRes.data : {})
@@ -101,12 +111,14 @@ function Queue() {
   }
 
   const toggleFilter = (status) => {
-    setActiveFilter(activeFilter === status ? null : status)
+    const newFilter = activeFilter === status ? null : status
+    setActiveFilter(newFilter)
+    setLoading(true)
+    fetchQueue(newFilter)
   }
 
-  const filteredQueue = activeFilter 
-    ? queue.filter(item => item.status === activeFilter) 
-    : queue
+  // Data sudah diambil dari API sesuai filter, gunakan langsung
+  const filteredQueue = queue
 
   return (
     <div className="space-y-6">

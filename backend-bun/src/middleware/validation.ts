@@ -6,24 +6,28 @@ import { logger } from '../utils/logger.js';
 export const sendMessageSchema = z.object({
     sessionId: z.string().min(1, 'Session ID is required'),
     to: z.string().regex(/^(\d+|.+@g\.us)$/, 'Invalid phone number or group ID'),
-    type: z.enum(['text', 'image', 'video', 'document', 'sticker', 'audio']).default('text'),
+    type: z.enum(['text', 'image', 'video', 'document', 'sticker', 'audio', 'vcard']).default('text'),
     message: z.string().optional(),
     content: z.string().optional(), // Alias for message
     media: z.string().optional(), // URL or base64
     mediaUrl: z.string().optional(), // Legacy support
     caption: z.string().optional(),
     useSpintax: z.boolean().optional(),
-    delay: z.boolean().optional()
+    delay: z.boolean().optional(),
+    scheduledAt: z.string().optional(),
+    contactName: z.string().optional(),
+    contactPhone: z.string().optional()
 }).refine(data => {
     const msg = data.message || data.content;
     const media = data.media || data.mediaUrl;
 
     if (data.type === 'text' && !msg) return false;
-    if (data.type !== 'text' && !media) return false;
+    if (data.type !== 'text' && data.type !== 'vcard' && !media) return false;
+    if (data.type === 'vcard' && (!data.contactName || !data.contactPhone)) return false;
     return true;
 }, {
-    message: "Message is required for text type, Media is required for non-text types",
-    path: ["message"]
+    message: "Message is required for text, Media for media types, and Contact Name/Phone for vcard",
+    path: ["message", "contactName", "contactPhone"]
 });
 
 export const bulkMessageSchema = z.object({

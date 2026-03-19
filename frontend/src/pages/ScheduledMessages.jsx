@@ -95,9 +95,9 @@ function ScheduledMessages() {
             const res = await api.get('/queue')
             const all = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.data) ? res.data.data : []
             const now = new Date()
-            // Only items with scheduledAt in the future and status pending
+            // Show messages with status 'scheduled' OR 'pending' that have a future scheduledAt
             const filtered = all.filter(item =>
-                item.status === 'pending' &&
+                (item.status === 'scheduled' || item.status === 'pending') &&
                 item.scheduledAt &&
                 new Date(item.scheduledAt) > now
             )

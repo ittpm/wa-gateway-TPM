@@ -18,7 +18,7 @@ cd /opt/wa-gateway-TPM/frontend && npm run build
 
 2. Restart PM2 agar serve dari `dist` yang baru:
 ```bash
-pm2 restart 4
+pm2 restart 3
 ```
 
 3. (Opsional) Push ke GitHub:

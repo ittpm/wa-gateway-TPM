@@ -1,94 +1,82 @@
-# WA Gateway Backend (Bun + Baileys)
+# WA Gateway Backend
 
-Backend WhatsApp Gateway menggunakan Bun runtime dan Baileys library.
+Backend WhatsApp Gateway dibangun dengan **Bun + TypeScript + Baileys** dan **PostgreSQL**.
 
-## Features
+## Stack
 
-- ✅ WhatsApp Web API dengan Baileys
-- ✅ Multi-device support
-- ✅ Message queue dengan anti-block protection
-- ✅ Webhook dispatcher
-- ✅ SQLite database
-- ✅ TypeScript
+- **Runtime**: [Bun](https://bun.sh/) 1.0+
+- **WhatsApp**: Baileys (wa-multi-session)
+- **Database**: PostgreSQL 14+
+- **Framework**: Express.js
 
-## Prerequisites
+## Setup Development
 
-- [Bun](https://bun.sh/) 1.0.0+
-- Node.js 18+ (untuk native dependencies)
-
-## Install Bun
-
-```powershell
-# Windows
-powershell -c "irm bun.sh/install.ps1 | iex"
-
-# Linux/Mac
-curl -fsSL https://bun.sh/install | bash
-```
-
-## Setup
-
-```powershell
+```bash
 # Install dependencies
 bun install
 
-# Create .env file
-copy .env.example .env
+# Buat .env
+cp .env.example .env
+# Edit .env (lihat README.md utama untuk contoh konfigurasi)
 
-# Run development
+# Jalankan development
 bun run dev
-
-# Run production
-bun run start
 ```
 
-## Build
+## Environment Variables
 
-```powershell
-bun run build
+Lihat `.env.example` untuk daftar lengkap. Variabel kritis:
+
+| Variabel | Keterangan |
+|---|---|
+| `PORT` | Port backend (default: 9090) |
+| `JWT_SECRET` | Secret untuk JWT token (wajib ganti di production!) |
+| `API_KEY` | Global API key |
+| `DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME` | Koneksi PostgreSQL |
+| `CORS_ORIGIN` | Domain yang diizinkan (gunakan `*` untuk development) |
+
+## Struktur Kode
+
+```
+src/
+├── index.ts           # Entry point
+├── api/
+│   └── routes.ts      # Semua HTTP routes
+├── connection/
+│   └── manager.ts     # Manajemen koneksi WhatsApp (Baileys)
+├── middleware/        # Auth, rate-limit, upload
+├── models/types.ts    # TypeScript interfaces
+├── queue/             # Message queue processor
+├── services/          # Auto-reply, analytics
+├── storage/
+│   └── database-pg.ts # PostgreSQL database layer
+├── utils/             # Logger, helpers
+└── webhook/           # Webhook dispatcher
 ```
 
-## API Documentation
+## Database
 
-Sama dengan versi Go. Lihat `/docs/API.md` di root project.
+Tabel dibuat otomatis via `migrate()` saat startup. Tidak perlu setup manual.
 
-## Perbedaan dengan Go Version
+> **Catatan penting**: Tabel `contacts` menggunakan UNIQUE constraint pada `(session_id, jid)` — ini memastikan sinkronisasi nama kontak berjalan dengan benar.
 
-| Fitur | Bun + Baileys | Go + whatsmeow |
-|-------|---------------|----------------|
-| WhatsApp Library | Baileys | whatsmeow |
-| Runtime | Bun | Go |
-| Database | better-sqlite3 | mattn/go-sqlite3 |
-| QR Code | qrcode | terminal QR |
-| Performa | Sangat cepat | Cepat |
+## API Endpoints
 
-## Keuntungan Bun Version
+Lihat [../docs/API-DOKUMENTASI.md](../docs/API-DOKUMENTASI.md) untuk dokumentasi lengkap.
 
-1. **Lebih mudah di Windows** - Tidak perlu GCC untuk SQLite
-2. **Baileys lebih stabil** - Library JavaScript yang mature
-3. **Native QR code** - QR code langsung jadi image
-4. **Hot reload** - `bun run --watch` untuk development
-5. **Satu bahasa** - Frontend dan backend sama-sama TypeScript/JavaScript
+Base URL: `http://localhost:9090/api/v1`
 
 ## Troubleshooting
 
-### Error: Cannot find module '@whiskeysockets/baileys'
-```powershell
-bun install @whiskeysockets/baileys
+### PostgreSQL tidak bisa connect
+```bash
+sudo systemctl status postgresql
+# Pastikan database 'wagateway' sudah dibuat
+PGPASSWORD=wagateway2024 psql -h localhost -U wagatewayuser -d wagateway -c '\dt'
 ```
 
-### Error: better-sqlite3 native module
-```powershell
-# Windows
-npm install -g windows-build-tools
-
-# Reinstall
+### Module tidak ditemukan
+```bash
 rm -rf node_modules bun.lockb
 bun install
-```
-
-### QR Code tidak muncul
-Pastikan folder `data/sessions` writable:
-```powershell
-mkdir -p data/sessions
 ```

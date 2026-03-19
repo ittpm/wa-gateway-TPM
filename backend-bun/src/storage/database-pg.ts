@@ -12,9 +12,12 @@ export class Database {
     const config = {
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '5432'),
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'postgres',
+      user: process.env.DB_USER || 'wagatewayuser',
+      password: process.env.DB_PASSWORD || 'wagateway2024',
       database: process.env.DB_NAME || 'wagateway',
+      max: 20,                  // max pool size
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
     };
 
     this.pool = new Pool(config);
@@ -32,7 +35,7 @@ export class Database {
       throw error;
     }
 
-    this.migrate();
+    await this.migrate();
     logger.info('Database initialized with PostgreSQL');
   }
 
@@ -78,31 +81,39 @@ export class Database {
       await client.query(`
         CREATE TABLE IF NOT EXISTS messages (
           id TEXT PRIMARY KEY,
-          session_id TEXT,
+          session_id TEXT NOT NULL,
           to_number TEXT NOT NULL,
-          message_type TEXT DEFAULT 'text',
+          message_type TEXT NOT NULL,
           content TEXT,
           media_url TEXT,
           file_name TEXT,
           caption TEXT,
-          latitude DOUBLE PRECISION,
-          longitude DOUBLE PRECISION,
+          latitude REAL,
+          longitude REAL,
           contact_name TEXT,
           contact_phone TEXT,
           status TEXT DEFAULT 'pending',
           attempts INTEGER DEFAULT 0,
           error_msg TEXT,
           message_id TEXT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          scheduled_at TIMESTAMP,
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          scheduled_at TIMESTAMPTZ,
           use_spintax INTEGER DEFAULT 0,
           delay_enabled INTEGER DEFAULT 1,
-          FOREIGN KEY (session_id) REFERENCES sessions(id)
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         )
       `);
+      
+      // FIX: Migrate naive TIMESTAMP columns to TIMESTAMPTZ with UTC base timezone to prevent timezone shifts
+      await client.query(`
+        ALTER TABLE messages
+        ALTER COLUMN scheduled_at TYPE TIMESTAMPTZ USING scheduled_at AT TIME ZONE 'UTC',
+        ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC',
+        ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING updated_at AT TIME ZONE 'UTC';
+      `).catch(e => logger.warn('Migration warnings for TIMESTAMPTZ (ignored if already applied):', e.message));
 
-      // Add indexes for better performance
+      // Indexes for performance
       await client.query(`CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)`);
@@ -136,7 +147,7 @@ export class Database {
           response TEXT,
           error_msg TEXT,
           timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (webhook_id) REFERENCES webhooks(id)
+          FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE CASCADE
         )
       `);
 
@@ -200,7 +211,7 @@ export class Database {
           is_active INTEGER DEFAULT 1,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (session_id) REFERENCES sessions(id)
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         )
       `);
 
@@ -213,7 +224,7 @@ export class Database {
           unknown_contact_message TEXT,
           reply_cooldown INTEGER DEFAULT 5,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (session_id) REFERENCES sessions(id)
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         )
       `);
 
@@ -225,9 +236,46 @@ export class Database {
           sent INTEGER DEFAULT 0,
           failed INTEGER DEFAULT 0,
           PRIMARY KEY (session_id, hour),
-          FOREIGN KEY (session_id) REFERENCES sessions(id)
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         )
       `);
+
+      // Contacts table
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS contacts (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          name TEXT,
+          phone TEXT,
+          jid TEXT NOT NULL,
+          is_group INTEGER DEFAULT 0,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_contacts_session_id ON contacts(session_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_contacts_jid ON contacts(session_id, jid)`);
+      
+      // FIX: Retroactively repair bad contact names that defaulted to phone string
+      await client.query(`
+        UPDATE contacts 
+        SET name = NULL 
+        WHERE name = phone;
+      `);
+
+      // Migration: Tambah UNIQUE constraint pada (session_id, jid) jika belum ada
+      // Ini diperlukan agar ON CONFLICT (session_id, jid) berfungsi untuk update nama kontak
+      try {
+        await client.query(`
+          ALTER TABLE contacts ADD CONSTRAINT contacts_session_jid_unique UNIQUE (session_id, jid)
+        `);
+        logger.info('Added UNIQUE constraint on contacts(session_id, jid)');
+      } catch (e: any) {
+        // Constraint sudah ada — tidak masalah
+        if (!e.message?.includes('already exists')) {
+          logger.warn('contacts unique constraint migration warning:', e.message);
+        }
+      }
 
       logger.info('PostgreSQL migration completed');
     } catch (error) {
@@ -239,42 +287,42 @@ export class Database {
   }
 
   // ============ Helper Methods ============
-  private query(text: string, params: any[] = []): pg.QueryResult<any> {
+  private async query(text: string, params: any[] = []): Promise<pg.QueryResult<any>> {
     if (!this.pool) throw new Error('Database not initialized');
-    return this.pool.query(text, params);
+    return await this.pool.query(text, params);
   }
 
   // ============ Session Methods ============
-  createSession(session: Session): Session {
+  async createSession(session: Session): Promise<Session> {
     const now = new Date().toISOString();
-    this.query(
+    await this.query(
       `INSERT INTO sessions (id, user_id, name, phone, status, jid, token, api_key, device_info, platform, me_name, created_at, updated_at) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-      [session.id, session.userId, session.name, session.phone, session.status, session.jid, session.token, 
+      [session.id, session.userId, session.name, session.phone, session.status, session.jid, session.token,
        session.apiKey, session.deviceInfo, session.platform, session.meName, now, now]
     );
     return session;
   }
 
-  getSession(id: string): Session | null {
-    const result = this.query('SELECT * FROM sessions WHERE id = $1', [id]);
+  async getSession(id: string): Promise<Session | null> {
+    const result = await this.query('SELECT * FROM sessions WHERE id = $1', [id]);
     if (result.rows.length === 0) return null;
     return this.mapSession(result.rows[0]);
   }
 
-  getAllSessions(userId?: string): Session[] {
-    let query = 'SELECT * FROM sessions';
+  async getAllSessions(userId?: string): Promise<Session[]> {
+    let sql = 'SELECT * FROM sessions';
     const params: any[] = [];
     if (userId) {
-      query += ' WHERE user_id = $1';
+      sql += ' WHERE user_id = $1';
       params.push(userId);
     }
-    query += ' ORDER BY created_at DESC';
-    const result = this.query(query, params);
+    sql += ' ORDER BY created_at DESC';
+    const result = await this.query(sql, params);
     return result.rows.map(row => this.mapSession(row));
   }
 
-  updateSession(session: Partial<Session> & { id: string }): void {
+  async updateSession(session: Partial<Session> & { id: string }): Promise<void> {
     const sets: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -283,25 +331,33 @@ export class Database {
     if (session.phone !== undefined) { sets.push(`phone = $${idx++}`); values.push(session.phone); }
     if (session.jid !== undefined) { sets.push(`jid = $${idx++}`); values.push(session.jid); }
     if (session.token !== undefined) { sets.push(`token = $${idx++}`); values.push(session.token); }
+    if (session.apiKey !== undefined) { sets.push(`api_key = $${idx++}`); values.push(session.apiKey); }
     if (session.lastActive !== undefined) { sets.push(`last_active = $${idx++}`); values.push(session.lastActive?.toISOString()); }
     if (session.messageCount !== undefined) { sets.push(`message_count = $${idx++}`); values.push(session.messageCount); }
     if (session.deviceInfo !== undefined) { sets.push(`device_info = $${idx++}`); values.push(session.deviceInfo); }
     if (session.platform !== undefined) { sets.push(`platform = $${idx++}`); values.push(session.platform); }
     if (session.meName !== undefined) { sets.push(`me_name = $${idx++}`); values.push(session.meName); }
 
+    if (sets.length === 0) return;
     sets.push(`updated_at = $${idx++}`);
     values.push(new Date().toISOString());
     values.push(session.id);
 
-    this.query(`UPDATE sessions SET ${sets.join(', ')} WHERE id = $${idx}`, values);
+    await this.query(`UPDATE sessions SET ${sets.join(', ')} WHERE id = $${idx}`, values);
   }
 
-  deleteSession(id: string): void {
-    this.query('DELETE FROM sessions WHERE id = $1', [id]);
+  async deleteSession(id: string): Promise<void> {
+    await this.query('DELETE FROM sessions WHERE id = $1', [id]);
+  }
+
+  async getSessionByApiKey(apiKey: string): Promise<Session | null> {
+    const result = await this.query('SELECT * FROM sessions WHERE api_key = $1', [apiKey]);
+    if (result.rows.length === 0) return null;
+    return this.mapSession(result.rows[0]);
   }
 
   // ============ Message Methods ============
-  createMessage(message: Omit<Message, 'id' | 'createdAt' | 'updatedAt' | 'attempts'>): Message {
+  async createMessage(message: Omit<Message, 'id' | 'createdAt' | 'updatedAt' | 'attempts'>): Promise<Message> {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const msg = {
@@ -312,7 +368,7 @@ export class Database {
       updatedAt: new Date(now),
     };
 
-    this.query(
+    await this.query(
       `INSERT INTO messages (id, session_id, to_number, message_type, content, media_url, file_name, caption, latitude, longitude, contact_name, contact_phone, status, attempts, error_msg, message_id, created_at, updated_at, scheduled_at, use_spintax, delay_enabled)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
       [msg.id, msg.sessionId, msg.to, msg.type, msg.content, msg.mediaUrl, msg.fileName, msg.caption,
@@ -323,24 +379,24 @@ export class Database {
     return msg;
   }
 
-  getMessagesByStatus(status: string, limit: number = 100, userId?: string): Message[] {
-    let query = 'SELECT * FROM messages WHERE status = $1';
+  async getMessagesByStatus(status: string, limit: number = 100, userId?: string): Promise<Message[]> {
+    let sql = 'SELECT * FROM messages WHERE status = $1';
     const params: any[] = [status];
 
     if (userId) {
-      query += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = $2)';
+      sql += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = $2)';
       params.push(userId);
     }
-    query += ' ORDER BY created_at ASC LIMIT $' + (params.length + 1);
+    sql += ' ORDER BY created_at ASC LIMIT $' + (params.length + 1);
     params.push(limit);
 
-    const result = this.query(query, params);
+    const result = await this.query(sql, params);
     return result.rows.map(row => this.mapMessage(row));
   }
 
-  updateMessage(message: Partial<Message> & { id?: string, messageId?: string }): void {
-    if (!this.db) return;
-    
+  async updateMessage(message: Partial<Message> & { id?: string, messageId?: string }): Promise<void> {
+    if (!this.pool) return;
+
     const sets: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -350,149 +406,152 @@ export class Database {
     if (message.error !== undefined) { sets.push(`error_msg = $${idx++}`); values.push(message.error); }
     if (message.messageId !== undefined) { sets.push(`message_id = $${idx++}`); values.push(message.messageId); }
 
+    if (sets.length === 0) return;
     sets.push(`updated_at = $${idx++}`);
     values.push(new Date().toISOString());
 
     if (message.id) {
       values.push(message.id);
-      this.query(`UPDATE messages SET ${sets.join(', ')} WHERE id = $${idx}`, values);
+      await this.query(`UPDATE messages SET ${sets.join(', ')} WHERE id = $${idx}`, values);
     } else if (message.messageId) {
       values.push(message.messageId);
-      this.query(`UPDATE messages SET ${sets.join(', ')} WHERE message_id = $${idx}`, values);
+      await this.query(`UPDATE messages SET ${sets.join(', ')} WHERE message_id = $${idx}`, values);
     }
   }
 
-  deleteMessagesByStatus(status: string, userId?: string): void {
+  async deleteMessagesByStatus(status: string, userId?: string): Promise<void> {
     if (!this.pool) return;
-    
+
     if (status === 'all') {
       if (userId) {
-        this.query('DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)', [userId]);
+        await this.query('DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)', [userId]);
       } else {
-        this.query('DELETE FROM messages');
+        await this.query('DELETE FROM messages');
       }
       return;
     }
 
     if (userId) {
-      this.query('DELETE FROM messages WHERE status = $1 AND session_id IN (SELECT id FROM sessions WHERE user_id = $2)', [status, userId]);
+      await this.query('DELETE FROM messages WHERE status = $1 AND session_id IN (SELECT id FROM sessions WHERE user_id = $2)', [status, userId]);
       return;
     }
 
-    this.query('DELETE FROM messages WHERE status = $1', [status]);
+    await this.query('DELETE FROM messages WHERE status = $1', [status]);
   }
 
-  getMessagesCountInTimeRange(sessionId: string, startTime: Date, endTime: Date): number {
-    const result = this.query(
+  async getMessagesCountInTimeRange(sessionId: string, startTime: Date, endTime: Date): Promise<number> {
+    const result = await this.query(
       'SELECT COUNT(*) as count FROM messages WHERE session_id = $1 AND status = $2 AND created_at BETWEEN $3 AND $4',
       [sessionId, 'completed', startTime.toISOString(), endTime.toISOString()]
     );
-    return result.rows[0]?.count || 0;
+    return parseInt(result.rows[0]?.count) || 0;
   }
 
-  getMessagesCount(sessionId: string, status: string): number {
-    const result = this.query(
+  async getMessagesCount(sessionId: string, status: string): Promise<number> {
+    const result = await this.query(
       'SELECT COUNT(*) as count FROM messages WHERE session_id = $1 AND status = $2',
       [sessionId, status]
     );
-    return result.rows[0]?.count || 0;
+    return parseInt(result.rows[0]?.count) || 0;
   }
 
-  getMessages(filters: {
+  async getMessages(filters: {
     sessionId?: string;
     status?: string;
     limit?: number;
     offset?: number;
     search?: string;
     userId?: string;
-  }): { messages: Message[]; total: number } {
-    let query = 'SELECT * FROM messages WHERE 1=1';
-    let countQuery = 'SELECT COUNT(*) as count FROM messages WHERE 1=1';
+  }): Promise<{ messages: Message[]; total: number }> {
+    let sql = 'SELECT * FROM messages WHERE 1=1';
+    let countSql = 'SELECT COUNT(*) as count FROM messages WHERE 1=1';
     const params: any[] = [];
     const countParams: any[] = [];
 
     if (filters.userId) {
-      query += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = $' + (params.length + 1) + ')';
-      countQuery += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = $' + (countParams.length + 1) + ')';
+      sql += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = $' + (params.length + 1) + ')';
+      countSql += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = $' + (countParams.length + 1) + ')';
       params.push(filters.userId);
       countParams.push(filters.userId);
     }
 
     if (filters.sessionId) {
-      query += ' AND session_id = $' + (params.length + 1);
-      countQuery += ' AND session_id = $' + (countParams.length + 1);
+      sql += ' AND session_id = $' + (params.length + 1);
+      countSql += ' AND session_id = $' + (countParams.length + 1);
       params.push(filters.sessionId);
       countParams.push(filters.sessionId);
     }
 
     if (filters.status) {
-      query += ' AND status = $' + (params.length + 1);
-      countQuery += ' AND status = $' + (countParams.length + 1);
+      sql += ' AND status = $' + (params.length + 1);
+      countSql += ' AND status = $' + (countParams.length + 1);
       params.push(filters.status);
       countParams.push(filters.status);
     }
 
     if (filters.search) {
-      query += ' AND (content LIKE $' + (params.length + 1) + ' OR to_number LIKE $' + (params.length + 2) + ')';
-      countQuery += ' AND (content LIKE $' + (countParams.length + 1) + ' OR to_number LIKE $' + (countParams.length + 2) + ')';
+      sql += ' AND (content ILIKE $' + (params.length + 1) + ' OR to_number ILIKE $' + (params.length + 2) + ')';
+      countSql += ' AND (content ILIKE $' + (countParams.length + 1) + ' OR to_number ILIKE $' + (countParams.length + 2) + ')';
       const searchPattern = `%${filters.search}%`;
       params.push(searchPattern, searchPattern);
       countParams.push(searchPattern, searchPattern);
     }
 
-    query += ' ORDER BY created_at DESC';
+    sql += ' ORDER BY created_at DESC';
 
     if (filters.limit) {
-      query += ' LIMIT $' + (params.length + 1);
+      sql += ' LIMIT $' + (params.length + 1);
       params.push(filters.limit);
       if (filters.offset) {
-        query += ' OFFSET $' + (params.length + 1);
+        sql += ' OFFSET $' + (params.length + 1);
         params.push(filters.offset);
       }
     }
 
-    const rows = this.query(query, params);
-    const total = this.query(countQuery, countParams);
+    const [rows, total] = await Promise.all([
+      this.query(sql, params),
+      this.query(countSql, countParams)
+    ]);
 
     return {
       messages: rows.rows.map(row => this.mapMessage(row)),
-      total: total.rows[0]?.count || 0
+      total: parseInt(total.rows[0]?.count) || 0
     };
   }
 
   // ============ User Methods ============
-  createUser(user: User): void {
+  async createUser(user: User): Promise<void> {
     const now = new Date().toISOString();
-    this.query(
+    await this.query(
       `INSERT INTO users (id, username, password, role, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`,
       [user.id, user.username, user.password, user.role || 'user', now, now]
     );
   }
 
-  getUserByUsername(username: string): User | null {
-    const result = this.query('SELECT * FROM users WHERE username = $1', [username]);
+  async getUserByUsername(username: string): Promise<User | null> {
+    const result = await this.query('SELECT * FROM users WHERE username = $1', [username]);
     if (result.rows.length === 0) return null;
     return this.mapUser(result.rows[0]);
   }
 
-  getUserById(id: string): User | null {
-    const result = this.query('SELECT * FROM users WHERE id = $1', [id]);
+  async getUserById(id: string): Promise<User | null> {
+    const result = await this.query('SELECT * FROM users WHERE id = $1', [id]);
     if (result.rows.length === 0) return null;
     return this.mapUser(result.rows[0]);
   }
 
-  updateUserPassword(username: string, hashedPassword: string): void {
+  async updateUserPassword(username: string, hashedPassword: string): Promise<void> {
     const now = new Date().toISOString();
-    this.query('UPDATE users SET password = $1, updated_at = $2 WHERE username = $3', [hashedPassword, now, username]);
+    await this.query('UPDATE users SET password = $1, updated_at = $2 WHERE username = $3', [hashedPassword, now, username]);
   }
 
-  updateUserPasswordById(id: string, hashedPassword: string): void {
+  async updateUserPasswordById(id: string, hashedPassword: string): Promise<void> {
     const now = new Date().toISOString();
-    this.query('UPDATE users SET password = $1, updated_at = $2 WHERE id = $3', [hashedPassword, now, id]);
+    await this.query('UPDATE users SET password = $1, updated_at = $2 WHERE id = $3', [hashedPassword, now, id]);
   }
 
-  getAllUsers(): User[] {
-    const result = this.query('SELECT id, username, role, created_at, updated_at FROM users ORDER BY created_at ASC');
+  async getAllUsers(): Promise<User[]> {
+    const result = await this.query('SELECT id, username, role, created_at, updated_at FROM users ORDER BY created_at ASC');
     return result.rows.map(row => ({
       id: row.id,
       username: row.username,
@@ -502,18 +561,18 @@ export class Database {
     }));
   }
 
-  deleteUser(id: string): void {
-    this.query('DELETE FROM users WHERE id = $1', [id]);
+  async deleteUser(id: string): Promise<void> {
+    await this.query('DELETE FROM users WHERE id = $1', [id]);
   }
 
-  updateUserRole(id: string, role: string): void {
+  async updateUserRole(id: string, role: string): Promise<void> {
     const now = new Date().toISOString();
-    this.query('UPDATE users SET role = $1, updated_at = $2 WHERE id = $3', [role, now, id]);
+    await this.query('UPDATE users SET role = $1, updated_at = $2 WHERE id = $3', [role, now, id]);
   }
 
   // ============ AntiBlock Settings ============
-  getAntiBlockSettings(userId: string): AntiBlockSettings {
-    const result = this.query('SELECT * FROM user_antiblock_settings WHERE user_id = $1', [userId]);
+  async getAntiBlockSettings(userId: string): Promise<AntiBlockSettings> {
+    const result = await this.query('SELECT * FROM user_antiblock_settings WHERE user_id = $1', [userId]);
     if (result.rows.length === 0) {
       return this.getDefaultAntiBlockSettings(userId);
     }
@@ -541,78 +600,89 @@ export class Database {
     };
   }
 
-  updateAntiBlockSettings(settings: Partial<AntiBlockSettings> & { userId: string }): void {
-    const sets: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
+  async updateAntiBlockSettings(settings: Partial<AntiBlockSettings> & { userId: string }): Promise<void> {
+    const fields: string[] = [];
+    const values: any[] = [settings.userId];
+    let idx = 2;
 
-    if (settings.rateLimitEnabled !== undefined) { sets.push(`rate_limit_enabled = $${idx++}`); values.push(settings.rateLimitEnabled ? 1 : 0); }
-    if (settings.messagesPerMinute !== undefined) { sets.push(`messages_per_minute = $${idx++}`); values.push(settings.messagesPerMinute); }
-    if (settings.messagesPerHour !== undefined) { sets.push(`messages_per_hour = $${idx++}`); values.push(settings.messagesPerHour); }
-    if (settings.burstLimit !== undefined) { sets.push(`burst_limit = $${idx++}`); values.push(settings.burstLimit); }
-    if (settings.delayEnabled !== undefined) { sets.push(`delay_enabled = $${idx++}`); values.push(settings.delayEnabled ? 1 : 0); }
-    if (settings.minDelay !== undefined) { sets.push(`min_delay = $${idx++}`); values.push(settings.minDelay); }
-    if (settings.maxDelay !== undefined) { sets.push(`max_delay = $${idx++}`); values.push(settings.maxDelay); }
-    if (settings.warmupEnabled !== undefined) { sets.push(`warmup_enabled = $${idx++}`); values.push(settings.warmupEnabled ? 1 : 0); }
-    if (settings.warmupDays !== undefined) { sets.push(`warmup_days = $${idx++}`); values.push(settings.warmupDays); }
-    if (settings.spintaxEnabled !== undefined) { sets.push(`spintax_enabled = $${idx++}`); values.push(settings.spintaxEnabled ? 1 : 0); }
-    if (settings.numberFilterEnabled !== undefined) { sets.push(`number_filter_enabled = $${idx++}`); values.push(settings.numberFilterEnabled ? 1 : 0); }
+    const fieldMap: Record<string, any> = {
+      rate_limit_enabled: settings.rateLimitEnabled !== undefined ? (settings.rateLimitEnabled ? 1 : 0) : undefined,
+      messages_per_minute: settings.messagesPerMinute,
+      messages_per_hour: settings.messagesPerHour,
+      burst_limit: settings.burstLimit,
+      delay_enabled: settings.delayEnabled !== undefined ? (settings.delayEnabled ? 1 : 0) : undefined,
+      min_delay: settings.minDelay,
+      max_delay: settings.maxDelay,
+      base_delay: settings.baseDelay,
+      warmup_enabled: settings.warmupEnabled !== undefined ? (settings.warmupEnabled ? 1 : 0) : undefined,
+      warmup_days: settings.warmupDays,
+      warmup_day1_limit: settings.warmupDay1Limit,
+      warmup_day7_limit: settings.warmupDay7Limit,
+      spintax_enabled: settings.spintaxEnabled !== undefined ? (settings.spintaxEnabled ? 1 : 0) : undefined,
+      number_filter_enabled: settings.numberFilterEnabled !== undefined ? (settings.numberFilterEnabled ? 1 : 0) : undefined,
+    };
 
-    if (sets.length === 0) return;
+    for (const [col, val] of Object.entries(fieldMap)) {
+      if (val !== undefined) {
+        fields.push(col);
+        values.push(val);
+        idx++;
+      }
+    }
 
-    sets.push(`updated_at = $${idx++}`);
-    values.push(new Date().toISOString());
-    values.push(settings.userId);
+    if (fields.length === 0) return;
 
-    // Use upsert
-    this.query(`INSERT INTO user_antiblock_settings (user_id, ${sets.slice(0, -1).map((s, i) => s.replace('=$' + (i + 1), '')).join(', ')})
-       VALUES ($1, ${sets.slice(0, -1).map((_, i) => '$' + (i + 2)).join(', ')})
-       ON CONFLICT (user_id) DO UPDATE SET ${sets.join(', ')}`, values);
+    const now = new Date().toISOString();
+    fields.push('updated_at');
+    values.push(now);
+
+    const insertCols = ['user_id', ...fields].join(', ');
+    const insertVals = ['$1', ...fields.map((_, i) => `$${i + 2}`)].join(', ');
+    const updateSets = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
+
+    await this.query(
+      `INSERT INTO user_antiblock_settings (${insertCols}) VALUES (${insertVals})
+       ON CONFLICT (user_id) DO UPDATE SET ${updateSets}`,
+      values
+    );
   }
 
   // ============ Stats ============
   async getStats(userId?: string): Promise<Stats> {
-    let sessionWhere = userId ? `WHERE user_id = $1` : '';
-    let messageWhere = userId ? 'WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)' : '';
-    
-    const totalSessions = userId 
-      ? (await this.query(`SELECT COUNT(*) as count FROM sessions ${sessionWhere}`, [userId])).rows[0]?.count || 0
-      : (await this.query(`SELECT COUNT(*) as count FROM sessions`)).rows[0]?.count || 0;
-    
-    const activeSessions = userId
-      ? (await this.query(`SELECT COUNT(*) as count FROM sessions ${sessionWhere} AND status = 'connected'`, [userId])).rows[0]?.count || 0
-      : (await this.query(`SELECT COUNT(*) as count FROM sessions WHERE status = 'connected'`)).rows[0]?.count || 0;
+    const sessionWhere = userId ? `WHERE user_id = $1` : '';
+    const msgSubq = userId ? `WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)` : '';
+    const p = userId ? [userId] : [];
 
-    const messagesSent = userId
-      ? (await this.query(`SELECT COUNT(*) as count FROM messages ${messageWhere}`, [userId])).rows[0]?.count || 0
-      : (await this.query(`SELECT COUNT(*) as count FROM messages`)).rows[0]?.count || 0;
+    const [totalSessions, activeSessions, messagesSent, messagesQueued, messagesDelivered, messagesFailed] = await Promise.all([
+      this.query(`SELECT COUNT(*) as count FROM sessions ${sessionWhere}`, p),
+      this.query(`SELECT COUNT(*) as count FROM sessions ${sessionWhere ? sessionWhere + " AND status = 'connected'" : "WHERE status = 'connected'"}`, p),
+      this.query(`SELECT COUNT(*) as count FROM messages ${msgSubq}`, p),
+      this.query(`SELECT COUNT(*) as count FROM messages ${msgSubq ? msgSubq + " AND status = 'pending'" : "WHERE status = 'pending'"}`, p),
+      this.query(`SELECT COUNT(*) as count FROM messages ${msgSubq ? msgSubq + " AND status = 'completed'" : "WHERE status = 'completed'"}`, p),
+      this.query(`SELECT COUNT(*) as count FROM messages ${msgSubq ? msgSubq + " AND status = 'failed'" : "WHERE status = 'failed'"}`, p),
+    ]);
 
-    const messagesQueued = userId
-      ? (await this.query(`SELECT COUNT(*) as count FROM messages ${messageWhere} AND status = 'pending'`, [userId])).rows[0]?.count || 0
-      : (await this.query(`SELECT COUNT(*) as count FROM messages WHERE status = 'pending'`)).rows[0]?.count || 0;
-
-    const messagesDelivered = userId
-      ? (await this.query(`SELECT COUNT(*) as count FROM messages ${messageWhere} AND status = 'completed'`, [userId])).rows[0]?.count || 0
-      : (await this.query(`SELECT COUNT(*) as count FROM messages WHERE status = 'completed'`)).rows[0]?.count || 0;
-
-    const messagesFailed = userId
-      ? (await this.query(`SELECT COUNT(*) as count FROM messages ${messageWhere} AND status = 'failed'`, [userId])).rows[0]?.count || 0
-      : (await this.query(`SELECT COUNT(*) as count FROM messages WHERE status = 'failed'`)).rows[0]?.count || 0;
-
-    return { totalSessions, activeSessions, messagesSent, messagesQueued, messagesDelivered, messagesFailed };
+    return {
+      totalSessions: parseInt(totalSessions.rows[0]?.count) || 0,
+      activeSessions: parseInt(activeSessions.rows[0]?.count) || 0,
+      messagesSent: parseInt(messagesSent.rows[0]?.count) || 0,
+      messagesQueued: parseInt(messagesQueued.rows[0]?.count) || 0,
+      messagesDelivered: parseInt(messagesDelivered.rows[0]?.count) || 0,
+      messagesFailed: parseInt(messagesFailed.rows[0]?.count) || 0,
+    };
   }
 
-  getQueueStats(userId?: string): Record<string, number> {
-    let query = 'SELECT status, COUNT(*) as count FROM messages';
+  async getQueueStats(userId?: string): Promise<Record<string, number>> {
+    let sql = 'SELECT status, COUNT(*) as count FROM messages';
     const params: any[] = [];
-    
+
     if (userId) {
-      query += ' WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)';
+      sql += ' WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)';
       params.push(userId);
     }
-    query += ' GROUP BY status';
-    
-    const result = this.query(query, params);
+    sql += ' GROUP BY status';
+
+    const result = await this.query(sql, params);
     const stats: Record<string, number> = {};
     for (const row of result.rows) {
       stats[row.status] = parseInt(row.count);
@@ -706,19 +776,16 @@ export class Database {
     };
   }
 
-  // ============ Other Methods (Simplified for PostgreSQL) ============
-  // Add remaining methods as needed for templates, webhooks, etc.
-  
-  // Template methods
-  getTemplates(userId?: string): Template[] {
-    let query = 'SELECT * FROM templates';
+  // ============ Template Methods ============
+  async getTemplates(userId?: string): Promise<Template[]> {
+    let sql = 'SELECT * FROM templates';
     const params: any[] = [];
     if (userId) {
-      query += ' WHERE user_id = $1';
+      sql += ' WHERE user_id = $1';
       params.push(userId);
     }
-    query += ' ORDER BY name ASC';
-    const result = this.query(query, params);
+    sql += ' ORDER BY name ASC';
+    const result = await this.query(sql, params);
     return result.rows.map(row => ({
       id: row.id,
       userId: row.user_id,
@@ -729,8 +796,8 @@ export class Database {
     }));
   }
 
-  getTemplate(id: string): Template | null {
-    const result = this.query('SELECT * FROM templates WHERE id = $1', [id]);
+  async getTemplate(id: string): Promise<Template | null> {
+    const result = await this.query('SELECT * FROM templates WHERE id = $1', [id]);
     if (result.rows.length === 0) return null;
     const row = result.rows[0];
     return {
@@ -743,14 +810,42 @@ export class Database {
     };
   }
 
-  deleteTemplate(id: string): void {
-    this.query('DELETE FROM templates WHERE id = $1', [id]);
+  async createTemplate(template: Omit<Template, 'createdAt' | 'updatedAt'>): Promise<Template> {
+    const now = new Date().toISOString();
+    await this.query(
+      `INSERT INTO templates (id, user_id, name, content, variables, category, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [template.id, template.userId, template.name, template.content,
+       (template as any).variables || null, (template as any).category || 'general', 1, now, now]
+    );
+    return { ...template, createdAt: new Date(now), updatedAt: new Date(now) };
   }
 
-  // Webhook methods
-  createWebhook(webhook: Omit<Webhook, 'createdAt' | 'updatedAt'>): Webhook {
+  async updateTemplate(id: string, data: Partial<Template>): Promise<void> {
     const now = new Date().toISOString();
-    this.query(
+    const sets: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (data.name !== undefined) { sets.push(`name = $${idx++}`); values.push(data.name); }
+    if (data.content !== undefined) { sets.push(`content = $${idx++}`); values.push(data.content); }
+    if ((data as any).category !== undefined) { sets.push(`category = $${idx++}`); values.push((data as any).category); }
+
+    if (sets.length === 0) return;
+    sets.push(`updated_at = $${idx++}`);
+    values.push(now);
+    values.push(id);
+    await this.query(`UPDATE templates SET ${sets.join(', ')} WHERE id = $${idx}`, values);
+  }
+
+  async deleteTemplate(id: string): Promise<void> {
+    await this.query('DELETE FROM templates WHERE id = $1', [id]);
+  }
+
+  // ============ Webhook Methods ============
+  async createWebhook(webhook: Omit<Webhook, 'createdAt' | 'updatedAt'>): Promise<Webhook> {
+    const now = new Date().toISOString();
+    await this.query(
       `INSERT INTO webhooks (id, user_id, url, secret, events, status, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [webhook.id, webhook.userId, webhook.url, webhook.secret || null, webhook.events.join(','), webhook.status, now, now]
@@ -758,20 +853,39 @@ export class Database {
     return { ...webhook, createdAt: new Date(now), updatedAt: new Date(now) };
   }
 
-  getAllWebhooks(userId?: string): Webhook[] {
-    let query = 'SELECT * FROM webhooks';
+  async getAllWebhooks(userId?: string): Promise<Webhook[]> {
+    let sql = 'SELECT * FROM webhooks';
     const params: any[] = [];
     if (userId) {
-      query += ' WHERE user_id = $1';
+      sql += ' WHERE user_id = $1';
       params.push(userId);
     }
-    query += ' ORDER BY created_at DESC';
-    const result = this.query(query, params);
+    sql += ' ORDER BY created_at DESC';
+    const result = await this.query(sql, params);
     return result.rows.map(row => this.mapWebhook(row));
   }
 
-  deleteWebhook(id: string): void {
-    this.query('DELETE FROM webhooks WHERE id = $1', [id]);
+  async updateWebhook(id: string, data: Partial<Webhook>): Promise<void> {
+    const now = new Date().toISOString();
+    const sets: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (data.url !== undefined) { sets.push(`url = $${idx++}`); values.push(data.url); }
+    if (data.secret !== undefined) { sets.push(`secret = $${idx++}`); values.push(data.secret); }
+    if (data.events !== undefined) { sets.push(`events = $${idx++}`); values.push(data.events.join(',')); }
+    if (data.status !== undefined) { sets.push(`status = $${idx++}`); values.push(data.status); }
+    if (data.lastTriggered !== undefined) { sets.push(`last_triggered = $${idx++}`); values.push(data.lastTriggered?.toISOString()); }
+
+    if (sets.length === 0) return;
+    sets.push(`updated_at = $${idx++}`);
+    values.push(now);
+    values.push(id);
+    await this.query(`UPDATE webhooks SET ${sets.join(', ')} WHERE id = $${idx}`, values);
+  }
+
+  async deleteWebhook(id: string): Promise<void> {
+    await this.query('DELETE FROM webhooks WHERE id = $1', [id]);
   }
 
   private mapWebhook(row: any): Webhook {
@@ -788,23 +902,23 @@ export class Database {
     };
   }
 
-  // Analytics
-  getHourlyActivity(sessionId?: string, hours: number = 24, userId?: string): any[] {
+  // ============ Analytics ============
+  async getHourlyActivity(sessionId?: string, hours: number = 24, userId?: string): Promise<any[]> {
     const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString().slice(0, 13);
-    let query = 'SELECT hour, SUM(sent) as sent, SUM(failed) as failed FROM analytics_hourly WHERE hour >= $1';
+    let sql = 'SELECT hour, SUM(sent) as sent, SUM(failed) as failed FROM analytics_hourly WHERE hour >= $1';
     const params: any[] = [since];
 
     if (userId) {
-      query += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = $' + (params.length + 1) + ')';
+      sql += ' AND session_id IN (SELECT id FROM sessions WHERE user_id = $' + (params.length + 1) + ')';
       params.push(userId);
     }
     if (sessionId) {
-      query += ' AND session_id = $' + (params.length + 1) + ')';
+      sql += ' AND session_id = $' + (params.length + 1);
       params.push(sessionId);
     }
-    query += ' GROUP BY hour ORDER BY hour ASC';
+    sql += ' GROUP BY hour ORDER BY hour ASC';
 
-    const result = this.query(query, params);
+    const result = await this.query(sql, params);
     return result.rows.map(row => ({
       hour: row.hour,
       sent: parseInt(row.sent) || 0,
@@ -812,30 +926,30 @@ export class Database {
     }));
   }
 
-  getTotalMessagesCount(userId?: string): number {
-    let query = 'SELECT COUNT(*) as count FROM messages';
+  async getTotalMessagesCount(userId?: string): Promise<number> {
+    let sql = 'SELECT COUNT(*) as count FROM messages';
     const params: any[] = [];
     if (userId) {
-      query += ' WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)';
+      sql += ' WHERE session_id IN (SELECT id FROM sessions WHERE user_id = $1)';
       params.push(userId);
     }
-    const result = this.query(query, params);
-    return result.rows[0]?.count || 0;
+    const result = await this.query(sql, params);
+    return parseInt(result.rows[0]?.count) || 0;
   }
 
-  getMessagesCountToday(userId?: string): number {
+  async getMessagesCountToday(userId?: string): Promise<number> {
     const today = new Date().toISOString().split('T')[0];
-    let query = "SELECT COUNT(*) as count FROM messages WHERE DATE(created_at) = $1";
+    let sql = "SELECT COUNT(*) as count FROM messages WHERE DATE(created_at) = $1";
     const params: any[] = [today];
     if (userId) {
-      query += " AND session_id IN (SELECT id FROM sessions WHERE user_id = $2)";
+      sql += " AND session_id IN (SELECT id FROM sessions WHERE user_id = $2)";
       params.push(userId);
     }
-    const result = this.query(query, params);
-    return result.rows[0]?.count || 0;
+    const result = await this.query(sql, params);
+    return parseInt(result.rows[0]?.count) || 0;
   }
 
-  getMessageStats(sessionId?: string, days: number = 7, userId?: string): any {
+  async getMessageStats(sessionId?: string, days: number = 7, userId?: string): Promise<any> {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     let whereClause = 'WHERE created_at >= $1';
     const params: any[] = [since];
@@ -845,24 +959,34 @@ export class Database {
       params.push(userId);
     }
     if (sessionId) {
-      whereClause += ' AND session_id = $' + (params.length + 1) + ')';
+      whereClause += ' AND session_id = $' + (params.length + 1);
       params.push(sessionId);
     }
 
-    const total = (this.query(`SELECT COUNT(*) as count FROM messages ${whereClause}`, params)).rows[0]?.count || 0;
-    const pending = (this.query(`SELECT COUNT(*) as count FROM messages ${whereClause} AND status = 'pending'`, params)).rows[0]?.count || 0;
-    const processing = (this.query(`SELECT COUNT(*) as count FROM messages ${whereClause} AND status = 'processing'`, params)).rows[0]?.count || 0;
-    const completed = (this.query(`SELECT COUNT(*) as count FROM messages ${whereClause} AND status = 'completed'`, params)).rows[0]?.count || 0;
-    const failed = (this.query(`SELECT COUNT(*) as count FROM messages ${whereClause} AND status = 'failed'`, params)).rows[0]?.count || 0;
+    const [total, pending, processing, completed, failed] = await Promise.all([
+      this.query(`SELECT COUNT(*) as count FROM messages ${whereClause}`, params),
+      this.query(`SELECT COUNT(*) as count FROM messages ${whereClause} AND status = 'pending'`, params),
+      this.query(`SELECT COUNT(*) as count FROM messages ${whereClause} AND status = 'processing'`, params),
+      this.query(`SELECT COUNT(*) as count FROM messages ${whereClause} AND status = 'completed'`, params),
+      this.query(`SELECT COUNT(*) as count FROM messages ${whereClause} AND status = 'failed'`, params),
+    ]);
 
-    return { total, pending, processing, completed, failed, bySession: {}, byDate: {} };
+    return {
+      total: parseInt(total.rows[0]?.count) || 0,
+      pending: parseInt(pending.rows[0]?.count) || 0,
+      processing: parseInt(processing.rows[0]?.count) || 0,
+      completed: parseInt(completed.rows[0]?.count) || 0,
+      failed: parseInt(failed.rows[0]?.count) || 0,
+      bySession: {},
+      byDate: {}
+    };
   }
 
-  // Global Settings
-  updateGlobalSettings(settings: Record<string, string | number | boolean>): void {
+  // ============ Global Settings ============
+  async updateGlobalSettings(settings: Record<string, string | number | boolean>): Promise<void> {
     const now = new Date().toISOString();
     for (const [key, value] of Object.entries(settings)) {
-      this.query(
+      await this.query(
         `INSERT INTO global_settings (key, value, updated_at) VALUES ($1, $2, $3)
          ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = $3`,
         [key, String(value), now]
@@ -870,8 +994,8 @@ export class Database {
     }
   }
 
-  getGlobalSettings(): Record<string, any> {
-    const result = this.query('SELECT key, value FROM global_settings');
+  async getGlobalSettings(): Promise<Record<string, any>> {
+    const result = await this.query('SELECT key, value FROM global_settings');
     const settings: Record<string, any> = {};
     for (const row of result.rows) {
       if (row.value === 'true') settings[row.key] = true;
@@ -880,5 +1004,130 @@ export class Database {
       else settings[row.key] = row.value;
     }
     return settings;
+  }
+  // ============ Contacts Methods ============
+  getContactsCount(sessionId: string): number {
+    // NOTE: This is called from sync callbacks in ConnectionManager that can't be async
+    // Return 0 as fallback; real count comes from async getContactsCountAsync
+    this.query('SELECT COUNT(*) as count FROM contacts WHERE session_id = $1', [sessionId])
+      .catch(e => logger.debug('getContactsCount error:', e));
+    return 0;
+  }
+
+  async getContactsCountAsync(sessionId: string): Promise<number> {
+    const result = await this.query('SELECT COUNT(*) as count FROM contacts WHERE session_id = $1', [sessionId]);
+    return parseInt(result.rows[0]?.count) || 0;
+  }
+
+  async bulkUpsertContacts(contacts: Array<{id: string; sessionId: string; name: string; phone: string; jid: string; isGroup: boolean}>): Promise<void> {
+    if (!contacts.length) return;
+    const client = await this.pool!.connect();
+    try {
+      await client.query('BEGIN');
+      for (const c of contacts) {
+        // Pakai ON CONFLICT pada (session_id, jid) — bukan id
+        // Hanya update nama jika nama baru lebih informative (bukan hanya nomor)
+        await client.query(
+          `INSERT INTO contacts (id, session_id, name, phone, jid, is_group, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())
+           ON CONFLICT (session_id, jid) DO UPDATE SET
+             name = CASE
+               WHEN EXCLUDED.name IS NOT NULL AND EXCLUDED.name != EXCLUDED.phone AND (contacts.name IS NULL OR contacts.name = contacts.phone OR LENGTH(EXCLUDED.name) > LENGTH(contacts.name))
+               THEN EXCLUDED.name
+               ELSE contacts.name
+             END,
+             phone = EXCLUDED.phone,
+             is_group = EXCLUDED.is_group,
+             updated_at = NOW()`,
+          [c.id, c.sessionId, c.name, c.phone, c.jid, c.isGroup ? 1 : 0]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      logger.error('bulkUpsertContacts error:', e);
+    } finally {
+      client.release();
+    }
+  }
+
+  async getContacts(sessionId: string, search?: string): Promise<any[]> {
+    let sql = 'SELECT * FROM contacts WHERE session_id = $1';
+    const params: any[] = [sessionId];
+    if (search) {
+      sql += ' AND (name ILIKE $2 OR phone ILIKE $2 OR jid ILIKE $2)';
+      params.push(`%${search}%`);
+    }
+    sql += ' ORDER BY name ASC LIMIT 500';
+    const result = await this.query(sql, params);
+    return result.rows.map(r => ({
+      id: r.id,
+      sessionId: r.session_id,
+      name: r.name,
+      phone: r.phone,
+      jid: r.jid,
+      isGroup: r.is_group === 1 || r.is_group === true,
+      updatedAt: r.updated_at
+    }));
+  }
+
+  async createContact(contact: { id: string; sessionId: string; name?: string; phone: string; jid: string; profilePicUrl?: string; isGroup?: boolean }): Promise<void> {
+    const now = new Date().toISOString();
+    const name = contact.name || null;
+    await this.query(`
+      INSERT INTO contacts (id, session_id, name, phone, jid, is_group, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (session_id, jid) DO UPDATE SET
+        name = CASE
+          WHEN EXCLUDED.name IS NOT NULL AND EXCLUDED.name != EXCLUDED.phone AND (contacts.name IS NULL OR contacts.name = contacts.phone OR LENGTH(EXCLUDED.name) > LENGTH(contacts.name))
+          THEN EXCLUDED.name
+          ELSE contacts.name
+        END,
+        phone = EXCLUDED.phone,
+        is_group = EXCLUDED.is_group,
+        updated_at = EXCLUDED.updated_at
+    `, [
+      contact.id,
+      contact.sessionId,
+      name,
+      contact.phone,
+      contact.jid,
+      contact.isGroup ? 1 : 0,
+      now
+    ]);
+  }
+
+  async getContactByJid(sessionId: string, jid: string): Promise<any | null> {
+    const result = await this.query('SELECT * FROM contacts WHERE session_id = $1 AND jid = $2', [sessionId, jid]);
+    if (result.rows.length === 0) return null;
+    const r = result.rows[0];
+    return {
+      id: r.id,
+      sessionId: r.session_id,
+      name: r.name,
+      phone: r.phone,
+      jid: r.jid,
+      isGroup: r.is_group === 1 || r.is_group === true
+    };
+  }
+
+  async updateContact(id: string, updates: { name?: string; profilePicUrl?: string }): Promise<void> {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (updates.name !== undefined) {
+      fields.push(`name = $${idx++}`);
+      values.push(updates.name);
+    }
+
+    if (fields.length > 0) {
+      fields.push(`updated_at = $${idx++}`);
+      values.push(new Date().toISOString());
+      // Tambahkan id sebagai parameter terakhir dengan indeks idx
+      values.push(id);
+
+      await this.query(`UPDATE contacts SET ${fields.join(', ')} WHERE id = $${idx}`, values);
+    }
   }
 }

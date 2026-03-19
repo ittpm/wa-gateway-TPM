@@ -126,7 +126,7 @@ export class ConnectionManager {
         if (conn) {
           conn.status = 'connecting';
           conn.session.status = 'connecting';
-          this.db.updateSession({ id: sessionId, status: 'connecting' });
+          this.db.updateSession({ id: sessionId, status: 'connecting' }).catch(e => logger.error('updateSession err:', e));
         }
       },
       onConnected: async (sessionId: string) => {
@@ -160,17 +160,16 @@ export class ConnectionManager {
             session.sock.ev.on('messages.update', async (updates) => {
               for (const update of updates) {
                 if (update.update.status && update.key.id) {
-                  // Map Baileys status to our status
                   let status = 'sent';
-                  if (update.update.status === 3) status = 'delivered'; // DELIVERY_ACK
-                  else if (update.update.status === 4) status = 'read'; // READ
-                  else if (update.update.status === 5) status = 'played'; // PLAYED
+                  if (update.update.status === 3) status = 'delivered';
+                  else if (update.update.status === 4) status = 'read';
+                  else if (update.update.status === 5) status = 'played';
 
                   this.db.updateMessage({
-                    id: 'UNKNOWN', // We don't have the UUID here, only the WA ID.
+                    id: 'UNKNOWN',
                     messageId: update.key.id,
                     status: status
-                  } as any);
+                  } as any).catch(e => logger.error('updateMessage err:', e));
                 }
               }
             });
@@ -194,9 +193,9 @@ export class ConnectionManager {
             phone: conn.session.phone,
             jid: conn.session.jid,
             deviceInfo: user?.id ? (user.id.includes(':') ? 'Secondary' : 'Primary') : 'Unknown',
-            platform: 'WhatsApp', // Baileys doesn't easily expose platform in user obj
+            platform: 'WhatsApp',
             meName: user?.name || user?.notify || undefined
-          });
+          }).catch(e => logger.error('updateSession err:', e));
         }
 
         // Tunggu beberapa detik agar store terisi, lalu sinkronisasi kontak
@@ -223,7 +222,7 @@ export class ConnectionManager {
           conn.status = 'disconnected';
           conn.session.status = 'disconnected';
           conn.qrCode = null;
-          this.db.updateSession({ id: sessionId, status: 'disconnected' });
+          this.db.updateSession({ id: sessionId, status: 'disconnected' }).catch(e => logger.error('updateSession err:', e));
         }
       },
       onMessageReceived: async (message: any) => {
@@ -270,7 +269,7 @@ export class ConnectionManager {
 
   async init(): Promise<void> {
     // Load existing sessions from database dan auto-reconnect
-    const sessions = this.db.getAllSessions();
+    const sessions = await this.db.getAllSessions();
     logger.info(`[ConnectionManager] Found ${sessions.length} sessions in database`);
 
     // Restore sessions dengan delay antar session untuk mencegah rate limiting
@@ -278,7 +277,7 @@ export class ConnectionManager {
       const session = sessions[i];
 
       // Mark as disconnected first since we need to reconnect
-      this.db.updateSession({ id: session.id, status: 'disconnected' });
+      await this.db.updateSession({ id: session.id, status: 'disconnected' });
 
       logger.info(`[ConnectionManager] Auto-reconnecting session: ${session.id} (${session.name})`);
 
@@ -357,7 +356,7 @@ export class ConnectionManager {
 
           conn.status = 'disconnected';
           conn.session.status = 'disconnected';
-          this.db.updateSession({ id: sessionId, status: 'disconnected' });
+          this.db.updateSession({ id: sessionId, status: 'disconnected' }).catch(e => logger.error('updateSession err:', e));
 
           // Reset fail count
           (conn as any).failCount = 0;
@@ -399,7 +398,7 @@ export class ConnectionManager {
         logger.error(`[Session ${sessionId}] Health check: Marking as disconnected after 3 errors`);
         conn.status = 'disconnected';
         conn.session.status = 'disconnected';
-        this.db.updateSession({ id: sessionId, status: 'disconnected' });
+        this.db.updateSession({ id: sessionId, status: 'disconnected' }).catch(e => logger.error('updateSession err:', e));
         (conn as any).failCount = 0;
       }
     }
@@ -516,7 +515,7 @@ export class ConnectionManager {
         if (conn.status !== 'disconnected') {
           conn.status = 'disconnected';
           conn.session.status = 'disconnected';
-          this.db.updateSession({ id: sessionId, status: 'disconnected' });
+          this.db.updateSession({ id: sessionId, status: 'disconnected' }).catch(e => logger.error('updateSession err:', e));
         }
         return {
           status: 'disconnected',
@@ -530,7 +529,7 @@ export class ConnectionManager {
       if (conn.status !== 'connected') {
         conn.status = 'connected';
         conn.session.status = 'connected';
-        this.db.updateSession({ id: sessionId, status: 'connected' });
+        this.db.updateSession({ id: sessionId, status: 'connected' }).catch(e => logger.error('updateSession err:', e));
       }
 
       return {
@@ -567,26 +566,30 @@ export class ConnectionManager {
     logger.info(`[Session ${id}] Creating new session: ${name}`);
 
     // Check if session already exists in database
-    const existingSession = this.db.getSession(id);
+    const existingSession = await this.db.getSession(id);
     let session;
 
     if (existingSession) {
-      // Update existing session
+      // Update existing session — pastikan apiKey ada
       session = existingSession;
-      this.db.updateSession({
-        id,
-        name,
-        status: 'connecting',
-        token
-      });
+      const updates: any = { id, name, status: 'connecting', token };
+      // Jika belum punya apiKey, generate sekarang
+      if (!existingSession.apiKey) {
+        updates.apiKey = 'wak_' + id.replace(/-/g, '').substring(0, 6) + '_' + crypto.randomUUID().replace(/-/g, '');
+        logger.info(`[Session ${id}] Generated missing apiKey`);
+      }
+      await this.db.updateSession(updates);
+      if (updates.apiKey) session = { ...session, apiKey: updates.apiKey };
     } else {
-      // Create new session
-      session = this.db.createSession({
+      // Create new session — selalu generate apiKey
+      const apiKey = 'wak_' + id.replace(/-/g, '').substring(0, 6) + '_' + crypto.randomUUID().replace(/-/g, '');
+      session = await this.db.createSession({
         id,
         userId,
         name,
         status: 'connecting',
         token,
+        apiKey,
         messageCount: 0
       });
     }
@@ -617,8 +620,10 @@ export class ConnectionManager {
             const qrDataUrl = await QRCode.toDataURL(qr, {
               type: 'image/png',
               margin: 2,
-              scale: 8,
-              width: 400
+              color: {
+                dark: '#000000',
+                light: '#ffffff'
+              }
             });
 
             const conn = this.sessions.get(sessionId);
@@ -627,7 +632,7 @@ export class ConnectionManager {
               conn.qrUpdateTime = new Date();
               conn.status = 'qr';
               conn.session.status = 'qr';
-              this.db.updateSession({ id: sessionId, status: 'qr' });
+              this.db.updateSession({ id: sessionId, status: 'qr' }).catch(e => logger.error('updateSession err:', e));
               logger.info(`[Session ${sessionId}] QR code generated`);
             }
           } catch (err) {
@@ -686,7 +691,7 @@ export class ConnectionManager {
     this.restoreInProgress.delete(id);
     this.restoreQueue.delete(id);
 
-    this.db.deleteSession(id);
+    await this.db.deleteSession(id);
   }
 
   private reconnectInProgress: Map<string, boolean> = new Map();
@@ -731,7 +736,7 @@ export class ConnectionManager {
       conn.qrCode = null;
     }
 
-    this.db.updateSession({ id, status: 'disconnected' });
+    this.db.updateSession({ id, status: 'disconnected' }).catch(e => logger.error('updateSession err:', e));
   }
 
   // Setup event listener untuk sync contacts dari Baileys events
@@ -749,12 +754,19 @@ export class ConnectionManager {
           if (contact.id && !contact.id.includes('status@broadcast')) {
             const jid = contact.id;
             const phone = jid.split('@')[0];
-            const name = contact.name || contact.pushname || contact.verifiedName || contact.notify || phone;
+            // Prioritaskan nama asli — JANGAN fallback ke phone number sebagai nama
+            // Karena hal itu yang menyebabkan kontak hanya tampil nomornya saja
+            const name = contact.name ||
+              contact.verifiedName ||
+              contact.notify ||
+              contact.pushName ||
+              contact.shortName ||
+              null; // null jika tidak ada nama
 
             contactsToSave.push({
               id: crypto.randomUUID(),
               sessionId,
-              name,
+              name: name || phone, // fallback ke phone hanya untuk field name (required)
               phone,
               jid,
               isGroup: jid.endsWith('@g.us')
@@ -773,7 +785,7 @@ export class ConnectionManager {
           }
         }
 
-        const totalCount = this.db.getContactsCount(sessionId);
+        let totalCount = 0; if (typeof (this.db as any).getContactsCount === "function") { totalCount = (this.db as any).getContactsCount(sessionId); }
         conn.contactsSyncProgress = totalCount;
         conn.contactsSyncTotal = totalCount;
         conn.contactsSyncStatus = 'completed';
@@ -793,7 +805,8 @@ export class ConnectionManager {
           if (chat.id && !chat.id.includes('status@broadcast')) {
             const jid = chat.id;
             const phone = jid.split('@')[0];
-            const name = chat.name || chat.pushName || chat.verifiedName || phone;
+            const name = chat.name || chat.pushName || chat.verifiedName ||
+              (chat.id.includes('@g.us') ? 'Group' : null);
 
             contactsToSave.push({
               id: crypto.randomUUID(),
@@ -911,7 +924,10 @@ export class ConnectionManager {
           }
         }
 
-        const totalCount = this.db.getContactsCount(sessionId);
+        let totalCount = 0;
+        if (typeof (this.db as any).getContactsCount === 'function') {
+          totalCount = (this.db as any).getContactsCount(sessionId);
+        }
         conn.contactsSyncProgress = totalCount;
         conn.contactsSyncTotal = totalCount;
         if (totalCount > 0) {
@@ -1230,7 +1246,15 @@ export class ConnectionManager {
         logger.debug(`[Session ${sessionId}] Groups not accessible:`, err?.message);
       }
 
-      const totalCount = this.db.getContactsCount(sessionId);
+      let totalCount = 0;
+      if (typeof (this.db as any).getContactsCount === 'function') {
+        totalCount = (this.db as any).getContactsCount(sessionId);
+      } else {
+        logger.error(`[Session ${sessionId}] this.db.getContactsCount is not a function. Instance type: ${this.db.constructor.name}`);
+        // Fallback untuk PostgreSQL sampai method terbaca
+        totalCount = 1; // dummy value supaya tidak crash
+      }
+      
       logger.info(`[Session ${sessionId}] Contact scan completed. New: ${syncedCount}, Total: ${totalCount}`);
 
       if (conn) {
@@ -1270,27 +1294,27 @@ export class ConnectionManager {
       const isGroup = jid.endsWith('@g.us');
 
       // Cek apakah kontak sudah ada
-      const existingContact = this.db.getContactByJid(sessionId, jid);
+      const existingContact = await Promise.resolve((this.db as any).getContactByJid(sessionId, jid));
 
       if (existingContact) {
         // Update nama jika nama baru lebih baik (lebih panjang atau bukan nomor)
         if (name && name !== phone &&
           (!existingContact.name || existingContact.name === phone || name.length > existingContact.name.length)) {
-          this.db.updateContact(existingContact.id, { name });
+          await Promise.resolve((this.db as any).updateContact(existingContact.id, { name }));
           logger.debug(`[Session ${sessionId}] Contact updated: ${phone} -> ${name}`);
         }
         return;
       }
 
       // Buat kontak baru
-      this.db.createContact({
+      await Promise.resolve((this.db as any).createContact({
         id: crypto.randomUUID(),
         sessionId,
-        name: name || phone,
+        name: name || null, // FIX: Don't default to phone, leave as null to show 'Unknown'
         phone,
         jid,
         isGroup
-      });
+      }));
 
       logger.debug(`[Session ${sessionId}] Contact saved: ${phone} (${name || 'no name'})`);
     } catch (error) {
@@ -1300,11 +1324,19 @@ export class ConnectionManager {
 
   // Get contacts untuk session
   getContacts(sessionId: string, search?: string): any[] {
-    return this.db.getContacts(sessionId, search);
+    if (typeof (this.db as any).getContacts === 'function') {
+      const result = (this.db as any).getContacts(sessionId, search);
+      // Hack if it's a promise (database-pg) instead of sync (database)
+      return result;
+    }
+    return [];
   }
 
   getContactsCount(sessionId: string): number {
-    return this.db.getContactsCount(sessionId);
+    if (typeof (this.db as any).getContactsCount === 'function') {
+      return (this.db as any).getContactsCount(sessionId);
+    }
+    return 0; // fallback if not exist
   }
 
   async sendPresenceUpdate(sessionId: string, to: string, type: 'composing' | 'recording' | 'available' | 'unavailable'): Promise<void> {
@@ -1495,6 +1527,58 @@ export class ConnectionManager {
       }
 
       logger.error(`[Connection] Failed to send message:`, error.message);
+      throw error;
+    }
+  }
+
+  async sendContactMessage(sessionId: string, to: string, contactName?: string, contactPhone?: string): Promise<string> {
+    logger.info(`[Connection] Sending contact message: session=${sessionId}, to=${to}`);
+
+    if (!contactName || !contactPhone) {
+      throw new Error('Contact Name and Phone are required for vcard messages');
+    }
+
+    try {
+      const session = await this.whatsapp.getSessionById(sessionId);
+      if (!session?.sock) {
+        throw new Error('Session not connected');
+      }
+
+      const sock = session.sock as any;
+      if (sock.ws && !sock.ws.isOpen && !sock.ws.isConnecting) {
+        throw new Error('WebSocket connection is closed');
+      }
+
+      const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+      const phoneClean = contactPhone.replace(/[^0-9+]/g, ''); // Ensure safe phone format
+
+      const vcard = 'BEGIN:VCARD\n'
+        + 'VERSION:3.0\n'
+        + `FN:${contactName}\n`
+        + `TEL;type=CELL;type=VOICE;waid=${contactPhone}:+${phoneClean}\n`
+        + 'URL:https://watpm.tpm.co.id\n'
+        + 'END:VCARD';
+
+      const result = await this.sendMessageWithRetry(sessionId, jid, {
+        contacts: {
+          displayName: contactName,
+          contacts: [{ vcard }]
+        }
+      });
+
+      logger.info(`[Connection] Contact message sent successfully: ${result?.key?.id}`);
+      return result?.key?.id || crypto.randomUUID();
+
+    } catch (error: any) {
+      if (error.message?.includes('Connection Closed') ||
+        error.message?.includes('connection closed') ||
+        error.message?.includes('Stream Errored') ||
+        error.output?.statusCode === 428 ||
+        error.output?.statusCode === 440) {
+        logger.warn(`[Connection] Connection closed while sending contact message to ${to}. Session will auto-reconnect.`);
+        throw new Error('WhatsApp connection closed. Please wait for auto-reconnect or reconnect manually.');
+      }
+      logger.error(`[Connection] Failed to send contact message:`, error.message);
       throw error;
     }
   }

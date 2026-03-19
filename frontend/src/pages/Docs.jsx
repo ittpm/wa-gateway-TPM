@@ -187,6 +187,21 @@ function Docs() {
           {/* Sessions */}
           <Section id="sessions" title="📱 Sessions" icon={Smartphone}>
             <p className="text-gray-600 mb-4">Kelola perangkat WhatsApp yang terhubung.</p>
+
+            {/* Session ID Info */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-5">
+              <h4 className="font-semibold text-blue-800 mb-2 flex items-center gap-2">
+                <Code className="w-4 h-4" />
+                Cara Mendapatkan Session ID — Otomatis via API
+              </h4>
+              <p className="text-sm text-blue-700 mb-3">
+                <strong>Session ID</strong> adalah identitas unik setiap nomor WhatsApp yang terdaftar.
+                Anda <strong>tidak perlu menyalin Session ID secara manual</strong>. Ambil otomatis dengan memanggil
+                endpoint <code className="bg-blue-100 px-1 rounded">GET /sessions</code> lalu pilih session yang
+                statusnya <code className="bg-blue-100 px-1 rounded">connected</code>.
+              </p>
+              <CodeBlock code={`// Ambil Session ID secara otomatis (JavaScript)\nconst res = await fetch('https://watpm.tpm.co.id/api/v1/sessions', {\n  headers: { 'Authorization': 'Bearer ' + token }\n});\nconst sessions = await res.json();\n\n// Pilih session yang sedang terhubung\nconst session = sessions.find(s => s.status === 'connected');\nconst sessionId = session.id;  // Gunakan ini untuk kirim pesan`} language="javascript" />
+            </div>
             
             <Endpoint
               method="GET"
@@ -422,19 +437,19 @@ function Docs() {
                   <FileJson className="w-4 h-4" />
                   JavaScript / Node.js
                 </h4>
-                <CodeBlock code={`const axios = require('axios');\n\nconst client = axios.create({\n  baseURL: 'https://watpm.tpm.co.id/api/v1',\n  headers: { 'X-API-Key': 'wag_xxxxxxxxxxxxxxxx' }\n});\n\n// Kirim pesan\nasync function kirimPesan(to, message) {\n  const response = await client.post('/messages/send', {\n    sessionId: 'uuid-session',\n    to: to,\n    type: 'text',\n    message: message,\n    delay: true\n  });\n  return response.data;\n}\n\n// Bulk message\nasync function kirimBulk(nomorArray, pesan) {\n  const response = await client.post('/messages/bulk', {\n    sessionId: 'uuid-session',\n    recipients: nomorArray,\n    message: pesan,\n    useSpintax: true\n  });\n  return response.data;\n}`} language="javascript" />
+                <CodeBlock code={`const axios = require('axios');\n\nconst client = axios.create({\n  baseURL: 'https://watpm.tpm.co.id/api/v1',\n  headers: { 'Authorization': 'Bearer TOKEN_ANDA' }\n});\n\n// LANGKAH 1: Ambil Session ID secara otomatis\nasync function getSessionId() {\n  const response = await client.get('/sessions');\n  const sessions = response.data;\n  // Pilih session yang sedang connected\n  const session = sessions.find(s => s.status === 'connected');\n  if (!session) throw new Error('Tidak ada session yang terhubung');\n  return session.id; // <- inilah Session ID-nya\n}\n\n// LANGKAH 2: Kirim pesan (sessionId diambil otomatis)\nasync function kirimPesan(to, message) {\n  const sessionId = await getSessionId();\n  const response = await client.post('/messages/send', {\n    sessionId,   // otomatis dari getSessionId()\n    to,\n    type: 'text',\n    message,\n    delay: true  // aktifkan anti-block delay\n  });\n  return response.data;\n}\n\n// LANGKAH 3: Bulk / blasting\nasync function kirimBulk(nomorArray, pesan) {\n  const sessionId = await getSessionId();\n  const response = await client.post('/messages/bulk', {\n    sessionId,\n    recipients: nomorArray,\n    message: pesan,\n    useSpintax: true,\n    delay: true\n  });\n  return response.data;\n}\n\n// Contoh penggunaan\nkirimPesan('6281234567890', 'Halo dari API!').then(console.log);`} language="javascript" />
               </div>
               
               {/* PHP */}
               <div>
                 <h4 className="font-semibold text-gray-900 mb-2">PHP</h4>
-                <CodeBlock code={`<?php\n$apiKey = 'wag_xxxxxxxxxxxxxxxx';\n$baseUrl = 'https://watpm.tpm.co.id/api/v1';\n\n// Kirim pesan\n$data = [\n    'sessionId' => 'uuid-session',\n    'to' => '6281234567890',\n    'type' => 'text',\n    'message' => 'Hello dari PHP!',\n    'delay' => true\n];\n\n$ch = curl_init(\"$baseUrl/messages/send\");\ncurl_setopt($ch, CURLOPT_POST, 1);\ncurl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));\ncurl_setopt($ch, CURLOPT_HTTPHEADER, [\n    'Content-Type: application/json',\n    \"X-API-Key: $apiKey\"\n]);\ncurl_setopt($ch, CURLOPT_RETURNTRANSFER, true);\n\n$response = curl_exec($ch);\ncurl_close($ch);\n\necho $response;`} language="php" />
+                <CodeBlock code={`<?php\n$token = 'TOKEN_ANDA';\n$baseUrl = 'https://watpm.tpm.co.id/api/v1';\n$headers = [\n    'Content-Type: application/json',\n    \"Authorization: Bearer $token\"\n];\n\n// LANGKAH 1: Ambil Session ID secara otomatis\nfunction getSessionId($baseUrl, $headers) {\n    $ch = curl_init(\"$baseUrl/sessions\");\n    curl_setopt_array($ch, [\n        CURLOPT_HTTPHEADER => $headers,\n        CURLOPT_RETURNTRANSFER => true\n    ]);\n    $sessions = json_decode(curl_exec($ch), true);\n    curl_close($ch);\n    foreach ($sessions as $s) {\n        if ($s['status'] === 'connected') return $s['id'];\n    }\n    throw new Exception('Tidak ada session yang terhubung');\n}\n\n// LANGKAH 2: Kirim pesan\n$sessionId = getSessionId($baseUrl, $headers);\n$data = [\n    'sessionId' => $sessionId,  // otomatis dari getSessionId()\n    'to'        => '6281234567890',\n    'type'      => 'text',\n    'message'   => 'Hello dari PHP!',\n    'delay'     => true\n];\n\n$ch = curl_init(\"$baseUrl/messages/send\");\ncurl_setopt_array($ch, [\n    CURLOPT_POST           => 1,\n    CURLOPT_POSTFIELDS     => json_encode($data),\n    CURLOPT_HTTPHEADER     => $headers,\n    CURLOPT_RETURNTRANSFER => true\n]);\necho curl_exec($ch);\ncurl_close($ch);`} language="php" />
               </div>
               
               {/* Python */}
               <div>
                 <h4 className="font-semibold text-gray-900 mb-2">Python</h4>
-                <CodeBlock code={`import requests\n\napi_key = 'wag_xxxxxxxxxxxxxxxx'\nbase_url = 'https://watpm.tpm.co.id/api/v1'\nheaders = {\n    'X-API-Key': api_key,\n    'Content-Type': 'application/json'\n}\n\n# Kirim pesan\nresponse = requests.post(\n    f'{base_url}/messages/send',\n    headers=headers,\n    json={\n        'sessionId': 'uuid-session',\n        'to': '6281234567890',\n        'type': 'text',\n        'message': 'Hello dari Python!',\n        'delay': True\n    }\n)\n\nprint(response.json())`} language="python" />
+                <CodeBlock code={`import requests\n\nbase_url = 'https://watpm.tpm.co.id/api/v1'\nheaders = {\n    'Authorization': 'Bearer TOKEN_ANDA',\n    'Content-Type': 'application/json'\n}\n\n# LANGKAH 1: Ambil Session ID secara otomatis\ndef get_session_id():\n    sessions = requests.get(f'{base_url}/sessions', headers=headers).json()\n    for s in sessions:\n        if s['status'] == 'connected':\n            return s['id']  # <- Session ID otomatis\n    raise Exception('Tidak ada session yang terhubung')\n\n# LANGKAH 2: Kirim pesan\nsession_id = get_session_id()\nresponse = requests.post(\n    f'{base_url}/messages/send',\n    headers=headers,\n    json={\n        'sessionId': session_id,  # otomatis dari get_session_id()\n        'to': '6281234567890',\n        'type': 'text',\n        'message': 'Hello dari Python!',\n        'delay': True\n    }\n)\n\nprint(response.json())`} language="python" />
               </div>
             </div>
           </Section>

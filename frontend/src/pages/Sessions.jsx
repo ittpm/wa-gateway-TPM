@@ -64,27 +64,22 @@ function Sessions() {
 
     try {
       const response = await api.post('/sessions', { name: newSessionName })
-      toast.success('Session dibuat! API Key tersedia untuk integrasi.')
-
-      setShowToken({
-        id: response.data.id,
-        name: newSessionName,
-        token: response.data.token,
-        apiKey: response.data.apiKey
-      })
+      toast.success('Session dibuat! Scan QR untuk menghubungkan WhatsApp.')
 
       setNewSessionName('')
       setShowCreateForm(false)
       fetchSessions()
 
-      setTimeout(() => {
-        setShowQR({
-          sessionId: response.data.id,
-          qrCode: null,
-          token: response.data.token
-        })
-        startQRRefresh(response.data.id)
-      }, 1000)
+      // Langsung buka QR modal tanpa delay dan tanpa Token modal terpisah
+      setShowQR({
+        sessionId: response.data.id,
+        qrCode: response.data.qrCode || null,
+        token: response.data.token,
+        apiKey: response.data.apiKey,
+        status: response.data.status,
+        sessionName: newSessionName || response.data.name
+      })
+      startQRRefresh(response.data.id)
 
     } catch (error) {
       const errDetail = error.response?.data?.details?.[0]?.message
@@ -98,44 +93,21 @@ function Sessions() {
     // Clear existing interval
     if (qrIntervalRef.current) clearInterval(qrIntervalRef.current)
 
-    // Reset QR display first
-    setShowQR(prev => prev ? { ...prev, qrCode: null, status: 'connecting' } : null)
-
-    // Fetch QR immediately first time
-    api.get(`/sessions/${sessionId}/qr`).then(response => {
-      if (response.data.qrCode && response.data.qrCode.startsWith('data:image')) {
-        setShowQR(prev => prev ? {
-          ...prev,
-          qrCode: response.data.qrCode,
-          status: response.data.status,
-          updatedAt: response.data.updatedAt
-        } : null)
-      }
-    }).catch(err => console.error('Initial QR fetch error:', err))
-
-    // Start auto-refresh QR (setiap 2 detik untuk lebih responsif)
-    qrIntervalRef.current = setInterval(async () => {
+    // Fetch QR segera (tidak reset qrCode supaya tidak hilang)
+    const fetchQR = async () => {
       try {
-        const response = await api.get(`/sessions/${sessionId}/qr`)
+        const response = await api.get(`/sessions/${sessionId}/qr?t=${Date.now()}`)
 
         if (response.data.qrCode && response.data.qrCode.startsWith('data:image')) {
-          setShowQR(prev => {
-            if (!prev) return null
-            return {
-              ...prev,
-              qrCode: response.data.qrCode,
-              status: response.data.status,
-              updatedAt: response.data.updatedAt
-            }
-          })
-        }
-
-        // Update status even if QR is not ready yet
-        if (response.data.status) {
-          setShowQR(prev => {
-            if (!prev) return null
-            return { ...prev, status: response.data.status }
-          })
+          setShowQR(prev => prev ? {
+            ...prev,
+            qrCode: response.data.qrCode,
+            status: response.data.status,
+            updatedAt: response.data.updatedAt
+          } : null)
+        } else if (response.data.status) {
+          // Update status even if QR is not ready yet
+          setShowQR(prev => prev ? { ...prev, status: response.data.status } : null)
         }
 
         // Check if connected
@@ -151,7 +123,13 @@ function Sessions() {
       } catch (error) {
         console.error('QR refresh error:', error)
       }
-    }, 2000)
+    }
+
+    // Fetch langsung pertama kali
+    fetchQR()
+
+    // Lanjutkan polling setiap 2 detik
+    qrIntervalRef.current = setInterval(fetchQR, 2000)
   }
 
   const deleteSession = async (id) => {
@@ -578,6 +556,7 @@ curl -X POST https://watpm.tpm.co.id/api/v1/messages/send \\
         <QRModal
           qrCode={showQR.qrCode}
           token={showQR.token}
+          apiKey={showQR.apiKey}
           status={showQR.status}
           updatedAt={showQR.updatedAt}
           onClose={() => {

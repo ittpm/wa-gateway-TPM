@@ -1,699 +1,308 @@
-﻿# WA Gateway - WhatsApp Multi-Device Gateway
+# WA Gateway — WhatsApp Multi-Device Gateway
 
-A powerful, anti-block WhatsApp Gateway built with Go/Bun and React. Supports multi-device, message queuing, webhooks, and anti-block protection.
+Gateway WhatsApp berbasis **Bun + TypeScript + Baileys** dengan dashboard React. Mendukung multi-session, message queue, webhook, auto-reply, dan perlindungan anti-block.
 
-## Backend Options
-
-We provide **TWO** backend implementations:
-
-| Backend | Tech Stack | Best For |
-|---------|-----------|----------|
-| **backend/** | Go + whatsmeow | Linux/Production |
-| **backend-bun/** | Bun + Baileys | Windows/Development ⭐ |
-
-> 💡 **Recommendation for Windows**: Use **Bun backend** - easier setup, better Windows support!
-
-## Quick Start (Windows with Bun - RECOMMENDED)
-
-```powershell
-# 1. Run setup
-.\setup-bun.bat
-
-# 2. Start backend
-cd backend-bun
-bun run dev
-
-# 3. Start frontend (new terminal)
-cd frontend
-npm run dev
-```
-
-## Quick Start (Go Backend)
-
-## Features
-
-### Core Features
-- **Multi-Device Support**: Run multiple WhatsApp numbers simultaneously
-- **Message Queue**: Prevent blocking with intelligent message queuing
-- **Webhook Dispatcher**: Real-time event notifications
-- **Session Management**: QR code login, auto-reconnect, session persistence
-
-### Anti-Block Protection
-- **Smart Rate Limiting**: Configurable messages per minute/hour
-- **Random Delays**: Human-like delays between messages
-- **Warm-up Mode**: Gradual limit increase for new numbers
-- **Content Spinner**: Spintax support for message variation
-- **Number Validation**: Check WhatsApp registration before sending
-
-### Message Types
-- Text messages (with formatting support)
-- Images with captions
-- Documents (PDF, etc.)
-- Location sharing
-- Contact cards (vCards)
-- Bulk messaging with anti-block protection
-
-## Project Structure
-
-```
-wa-gateway/
-├── frontend/           # React + Vite + Tailwind CSS
-│   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   └── services/
-│   └── package.json
-├── backend/            # Go backend
-│   ├── cmd/server/     # Main entry point
-│   ├── internal/       # Internal packages
-│   │   ├── api/        # HTTP handlers & routes
-│   │   ├── connection/ # WhatsApp connection manager
-│   │   ├── queue/      # Message queue processor
-│   │   ├── storage/    # Database operations
-│   │   ├── webhook/    # Webhook dispatcher
-│   │   └── antiblock/  # Anti-block features
-│   └── pkg/            # Public packages
-│       ├── spintax/    # Spintax processor
-│       └── validator/  # Phone number validator
-└── docs/               # Documentation
-```
-
-## Quick Start
-
-### Prerequisites
-
-#### For Windows Testing:
-- **Go 1.21+** - [Download](https://golang.org/dl/)
-- **Node.js 18+** - [Download](https://nodejs.org/)
-- **Git** - [Download](https://git-scm.com/download/win)
-- **GCC (for SQLite)** - via [MSYS2](https://www.msys2.org/) or [TDM-GCC](https://jmeubank.github.io/tdm-gcc/)
-
-#### For Linux Production:
-- **Go 1.21+**
-- **Node.js 18+**
-- **Build essentials**: `sudo apt-get install build-essential`
-- **SQLite3**: `sudo apt-get install sqlite3 libsqlite3-dev`
-- **PostgreSQL (Optional, for production)**: `sudo apt-get install postgresql postgresql-contrib`
+> 🌐 **Production URL**: https://watpm.tpm.co.id  
+> 🔧 **Backend Port**: 9090  
+> 🖥️ **Frontend Port**: 9000
 
 ---
 
-## Database Configuration
+## Tech Stack
 
-By default, the application uses **SQLite** for simplicity. For production/ commercialization with many users, we recommend using **PostgreSQL**.
+| Komponen | Teknologi |
+|---|---|
+| **Backend** | Bun + TypeScript + Express + Baileys (wa-multi-session) |
+| **Frontend** | React + Vite |
+| **Database** | PostgreSQL 14+ |
+| **Process Manager** | PM2 |
+| **Reverse Proxy** | Nginx |
 
-### Using SQLite (Default)
-```bash
-# No additional setup required
-# Just edit .env if needed:
-DB_TYPE=sqlite
-DB_PATH=./data/wagateway.db
+---
+
+## Struktur Project
+
+```
+wa-gateway-TPM/
+├── backend-bun/
+│   ├── src/
+│   │   ├── api/           # Routes & HTTP handlers
+│   │   ├── connection/    # WhatsApp connection manager (Baileys)
+│   │   ├── middleware/    # Auth (JWT + API Key), rate-limit, upload
+│   │   ├── models/        # TypeScript type definitions
+│   │   ├── queue/         # Message queue processor
+│   │   ├── services/      # Auto-reply, analytics
+│   │   ├── storage/       # PostgreSQL database layer
+│   │   ├── utils/         # Logger, helpers
+│   │   ├── webhook/       # Webhook dispatcher
+│   │   └── index.ts       # Entry point
+│   ├── .env               # Environment variables (jangan di-commit!)
+│   └── package.json
+├── frontend/
+│   ├── src/
+│   │   ├── pages/         # Sessions, SendMessage, History, dll.
+│   │   ├── components/    # QRModal, Layout, dll.
+│   │   └── services/      # API client (axios)
+│   └── dist/              # Production build (dihasilkan npm run build)
+├── docs/
+│   ├── API-DOKUMENTASI.md # Dokumentasi API lengkap
+│   └── DEPLOYMENT.md      # Panduan deployment lengkap
+├── ecosystem.config.js    # PM2 configuration
+└── README.md
 ```
 
-### Using PostgreSQL (Recommended for Production)
+---
 
-#### 1. Install PostgreSQL
+## Fitur
 
-**Linux (Ubuntu/Debian):**
+### Core
+- **Multi-Session** — Jalankan beberapa nomor WhatsApp sekaligus
+- **QR Code Login** — Auto-refresh QR, deteksi koneksi otomatis
+- **Message Queue** — Antrian pesan dengan retry otomatis (3x)
+- **Bulk Messaging** — Kirim ke banyak nomor sekaligus
+- **File Upload** — Kirim gambar/dokumen langsung via upload atau URL
+- **Pesan Terjadwal** — Schedule pesan ke waktu tertentu
+- **Auto-Reply** — Balas otomatis berdasarkan kata kunci atau regex
+- **Webhook** — Notifikasi event real-time ke URL eksternal
+- **Template Pesan** — Buat dan gunakan template dengan variabel
+- **Kontak** — Sinkronisasi kontak dari WhatsApp secara otomatis
+
+### Anti-Block Protection
+- **Rate Limiting** — Batas pesan/menit & pesan/jam (configurable)
+- **Random Delay** — Jeda acak antar pesan agar terasa alami
+- **Warmup Mode** — Naikkan limit bertahap untuk nomor baru
+- **Spintax** — Variasi konten pesan: `{Halo|Hi|Selamat Pagi}`
+- **Number Validation** — Cek registrasi WA sebelum kirim
+
+### Security
+- Autentikasi **JWT** + **API Key** (global dan per-session)
+- SSRF protection untuk URL eksternal
+- Rate limiting per endpoint
+- UUID validation di semua route
+- Helmet middleware
+
+---
+
+## Autentikasi API
+
+Ada 3 metode:
+
+| Metode | Header | Keterangan |
+|---|---|---|
+| **JWT** | `Authorization: Bearer <token>` | Login via dashboard |
+| **Global API Key** | `X-API-Key: <key_dari_.env>` | Akses penuh |
+| **Per-Session API Key** ⭐ | `X-API-Key: wak_xxxxxx_...` | Terbatas ke 1 sesi |
+
+> ⭐ **Rekomendasi**: Gunakan Per-Session API Key untuk integrasi. `sessionId` tidak perlu disertakan di body pesan — otomatis terdeteksi dari key.
+
+---
+
+## Quick Start (Development)
+
+### 1. Prasyarat
+
 ```bash
-# Install PostgreSQL
-sudo apt-get update
-sudo apt-get install postgresql postgresql-contrib
+# Install Bun
+curl -fsSL https://bun.sh/install | bash
 
-# Start PostgreSQL
-sudo systemctl start postgresql
-sudo systemctl enable postgresql
+# Install Node.js 20+
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
 
-# Create database and user
-sudo -u postgres psql
+# Install PM2
+npm install -g pm2
+
+# PostgreSQL 14+
+sudo apt install -y postgresql postgresql-contrib
 ```
 
-**In PostgreSQL console:**
-```sql
+### 2. Setup Database PostgreSQL
+
+```bash
+sudo -u postgres psql << 'EOF'
 CREATE DATABASE wagateway;
-CREATE USER wagatewayuser WITH PASSWORD 'your_secure_password';
+CREATE USER wagatewayuser WITH PASSWORD 'wagateway2024';
 GRANT ALL PRIVILEGES ON DATABASE wagateway TO wagatewayuser;
 \q
+EOF
 ```
 
-#### 2. Configure Environment Variables
+### 3. Konfigurasi `.env`
 
 Edit `backend-bun/.env`:
 
 ```env
-# Database
-DB_TYPE=postgresql
+PORT=9090
+HOST=0.0.0.0
+NODE_ENV=development
 
-# PostgreSQL Configuration
+# WAJIB GANTI di production!
+JWT_SECRET=ganti-dengan-nilai-random-kuat
+API_KEY=ganti-dengan-nilai-random-kuat
+
+CORS_ORIGIN=*
+
+DB_TYPE=postgres
 DB_HOST=localhost
 DB_PORT=5432
 DB_USER=wagatewayuser
-DB_PASSWORD=your_secure_password
+DB_PASSWORD=wagateway2024
 DB_NAME=wagateway
 ```
 
-#### 3. Start the Application
+### 4. Install & Jalankan
+
 ```bash
+# Backend
 cd backend-bun
+bun install
 bun run dev
-```
 
-The application will automatically create all required tables on first run.
-
----
-
-## Step-by-Step Testing on Windows
-
-### Step 1: Clone and Setup
-
-```powershell
-# Clone the repository (or extract the zip)
-cd wa-gateway
-
-# Create data directory
-mkdir backend\data
-mkdir backend\cmd\server\data
-```
-
-### Step 2: Backend Setup
-
-```powershell
-# Navigate to backend
-cd backend
-
-# Download Go dependencies
-go mod download
-
-# Build the backend
-go build -o wa-gateway.exe ./cmd/server
-
-# Create .env file
-copy .env.example .env
-```
-
-**Edit `.env` file for Windows:**
-```env
-SERVER_HOST=localhost
-SERVER_PORT=9090
-
-DB_TYPE=sqlite
-DB_CONNECTION=./data/wagateway.db
-
-REDIS_ENABLED=false
-
-JWT_SECRET=your-secret-key-for-development-only
-ANTIBLOCK_ENABLED=true
-```
-
-### Step 3: Run Backend
-
-```powershell
-# Run the server
-.\wa-gateway.exe
-
-# You should see:
-# ╔════════════════════════════════════════════════════════╗
-# ║           WA Gateway - WhatsApp Multi-Device           ║
-# ╚════════════════════════════════════════════════════════╝
-# ✓ Database connected
-# ✓ Connection manager initialized
-# ✓ Message queue initialized
-# 🚀 Server starting on http://localhost:9090
-```
-
-### Step 4: Frontend Setup
-
-Open a **new PowerShell window**:
-
-```powershell
-# Navigate to frontend
-cd wa-gateway\frontend
-
-# Install dependencies
+# Frontend (terminal baru)
+cd frontend
 npm install
-
-# Run development server
 npm run dev
-
-# Frontend should start at http://localhost:9000
 ```
 
-### Step 5: Access the Application
+### 5. Akses
 
-1. Open browser: http://localhost:9000
-2. You should see the Dashboard
-3. Go to **Sessions** page to add a WhatsApp account
+- **Frontend**: http://localhost:9000
+- **Backend API**: http://localhost:9090/api/v1
+- **Health Check**: http://localhost:9090/health
 
-### Step 6: Connect WhatsApp
-
-1. Click **"New Session"**
-2. Enter a name (e.g., "Business Account 1")
-3. Click **Create**
-4. Scan the QR code with your WhatsApp mobile app:
-   - Open WhatsApp → Menu → Linked Devices → Link a Device
-   - Scan the QR code displayed
-5. Wait for status to change to **"connected"**
-
-### Step 7: Send Test Message
-
-1. Go to **Send Message** page
-2. Select your connected session
-3. Enter a phone number (format: 6281234567890)
-4. Type a message
-5. Enable **"Use Anti-Block Delay"** (recommended)
-6. Click **Send Message**
-
-### Step 8: Test Anti-Block Features
-
-1. Go to **Anti-Block** page
-2. Adjust rate limiting settings:
-   - Messages per minute: 5
-   - Messages per hour: 50
-   - Min delay: 1 second
-   - Max delay: 5 seconds
-3. Test bulk messaging with multiple recipients
-
-### Step 9: Test Webhooks
-
-1. Go to **Webhooks** page
-2. Add a webhook URL (e.g., use [webhook.site](https://webhook.site) for testing)
-3. Select events to subscribe (e.g., "Message Received")
-4. Send a message to your WhatsApp number
-5. Check webhook delivery logs
+**Login default**: username `admin`, password yang diset di `SUPERADMIN_PASSWORD` di `.env` (default: `Admin@1234`)
 
 ---
 
-## Deployment on Linux (Ubuntu)
-
-### Step 1: Server Preparation
+## Production Deployment (PM2)
 
 ```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
+# Build Frontend
+cd /opt/wa-gateway-TPM/frontend
+npm install && npm run build
 
-# Install dependencies
-sudo apt install -y git curl wget build-essential sqlite3 libsqlite3-dev
+# Install Backend dependencies
+cd /opt/wa-gateway-TPM/backend-bun
+bun install
 
-# Install Go 1.21+
-wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
-rm go1.21.5.linux-amd64.tar.gz
-
-# Add Go to PATH
-echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
-source ~/.bashrc
-
-# Install Node.js 18+
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt install -y nodejs
-
-# Verify installations
-go version
-node -v
-npm -v
+# Start semua service
+cd /opt/wa-gateway-TPM
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
 ```
 
-### Step 2: Deploy Application
+### Perintah PM2 Berguna
 
 ```bash
-# Create app directory
-sudo mkdir -p /opt/wa-gateway
-sudo chown $USER:$USER /opt/wa-gateway
-cd /opt/wa-gateway
-
-# Copy your project files (via git clone or scp)
-# If using git:
-git clone <your-repo-url> .
-
-# Or copy files from local
-scp -r wa-gateway/* user@server:/opt/wa-gateway/
-```
-
-### Step 3: Build Backend
-
-```bash
-cd /opt/wa-gateway/backend
-
-# Download dependencies
-go mod download
-
-# Build for production
-go build -o wa-gateway ./cmd/server
-
-# Create data directory
-mkdir -p data
-
-# Setup environment
-sudo cp .env.example /etc/wa-gateway.env
-sudo nano /etc/wa-gateway.env
-```
-
-**Production `.env` configuration:**
-```env
-SERVER_HOST=0.0.0.0
-SERVER_PORT=9090
-
-DB_TYPE=sqlite
-DB_CONNECTION=/opt/wa-gateway/backend/data/wagateway.db
-
-# OR use PostgreSQL for production:
-# DB_TYPE=postgres
-# DB_CONNECTION="host=localhost user=wagateway password=secret dbname=wagateway port=5432 sslmode=disable"
-
-REDIS_ENABLED=false
-
-API_KEY=your-secure-api-key-here
-JWT_SECRET=your-super-secret-jwt-key-change-this
-
-ANTIBLOCK_ENABLED=true
-RATE_LIMIT_ENABLED=true
-MESSAGES_PER_MINUTE=5
-MESSAGES_PER_HOUR=50
-BURST_LIMIT=10
-
-DELAY_ENABLED=true
-MIN_DELAY=2
-MAX_DELAY=5
-
-WARMUP_ENABLED=true
-WARMUP_DAYS=7
-
-WEBHOOK_RETRIES=3
-WEBHOOK_TIMEOUT=90000
-
-ENV=production
-```
-
-### Step 4: Build Frontend
-
-```bash
-cd /opt/wa-gateway/frontend
-
-# Install dependencies
-npm install
-
-# Build for production
-npm run build
-
-# Install serve for static files
-sudo npm install -g serve
-```
-
-### Step 5: Create Systemd Services
-
-**Backend Service:**
-```bash
-sudo nano /etc/systemd/system/wa-gateway.service
-```
-
-```ini
-[Unit]
-Description=WA Gateway Backend
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/opt/wa-gateway/backend
-ExecStart=/opt/wa-gateway/backend/wa-gateway
-Restart=on-failure
-RestartSec=5
-Environment=PATH=/usr/local/go/bin:/usr/bin:/bin
-
-[Install]
-WantedBy=multi-user.target
-```
-
-**Frontend Service:**
-```bash
-sudo nano /etc/systemd/system/wa-gateway-frontend.service
-```
-
-```ini
-[Unit]
-Description=WA Gateway Frontend
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/opt/wa-gateway/frontend
-ExecStart=/usr/bin/serve -s dist -l 9000
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Step 6: Start Services
-
-```bash
-# Set permissions
-sudo chown -R www-data:www-data /opt/wa-gateway
-
-# Reload systemd
-sudo systemctl daemon-reload
-
-# Start services
-sudo systemctl enable wa-gateway
-sudo systemctl enable wa-gateway-frontend
-sudo systemctl start wa-gateway
-sudo systemctl start wa-gateway-frontend
-
-# Check status
-sudo systemctl status wa-gateway
-sudo systemctl status wa-gateway-frontend
-
-# View logs
-sudo journalctl -u wa-gateway -f
-```
-
-### Step 7: Configure Nginx (Optional but Recommended)
-
-```bash
-sudo apt install nginx
-sudo nano /etc/nginx/sites-available/wa-gateway
-```
-
-```nginx
-server {
-    listen 80;
-    server_name watpm.tpm.co.id;
-
-    location / {
-        proxy_pass http://localhost:9000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    location /api {
-        proxy_pass http://localhost:9090;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
-
-```bash
-sudo ln -s /etc/nginx/sites-available/wa-gateway /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-```
-
-### Step 8: SSL with Let's Encrypt (Recommended)
-
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d watpm.tpm.co.id
-sudo systemctl reload nginx
+pm2 status                           # Status semua proses
+pm2 logs wa-gateway-backend          # Log backend live
+pm2 logs wa-gateway-backend --lines 50  # 50 baris terakhir
+pm2 restart wa-gateway-backend --update-env  # Restart + load env baru
+pm2 restart wa-gateway-frontend      # Restart frontend setelah build
 ```
 
 ---
 
-## API Documentation
+## Database
 
-### Authentication
+Tabel dibuat otomatis saat pertama kali dijalankan via fungsi `migrate()`.
 
-If `API_KEY` is set, include it in the header:
-```
-X-API-Key: your-api-key
-```
+| Tabel | Keterangan |
+|---|---|
+| `sessions` | Data session WhatsApp |
+| `users` | Akun pengguna (superadmin, admin) |
+| `messages` | Riwayat & antrian pesan |
+| `contacts` | Kontak dari WhatsApp (disync otomatis) |
+| `webhooks` | Konfigurasi webhook |
+| `webhook_logs` | Log pengiriman webhook |
+| `templates` | Template pesan |
+| `auto_reply_rules` | Aturan auto-reply |
+| `auto_reply_settings` | Pengaturan auto-reply per sesi |
+| `user_antiblock_settings` | Konfigurasi anti-block per user |
+| `global_settings` | Pengaturan global |
+| `analytics_hourly` | Data analitik per jam |
 
-### Sessions
-
-**Create Session:**
-```bash
-POST /api/v1/sessions
-{
-  "name": "Business Account 1"
-}
-```
-
-**Get All Sessions:**
-```bash
-GET /api/v1/sessions
-```
-
-**Reconnect Session:**
-```bash
-POST /api/v1/sessions/{id}/reconnect
-```
-
-**Logout Session:**
-```bash
-POST /api/v1/sessions/{id}/logout
-```
-
-**Delete Session:**
-```bash
-DELETE /api/v1/sessions/{id}
-```
-
-### Messages
-
-**Send Text Message:**
-```bash
-POST /api/v1/messages/send
-{
-  "sessionId": "session-id",
-  "to": "6281234567890",
-  "type": "text",
-  "message": "Hello World!",
-  "useSpintax": false,
-  "delay": true
-}
-```
-
-**Send Bulk Messages:**
-```bash
-POST /api/v1/messages/bulk
-{
-  "sessionId": "session-id",
-  "recipients": ["6281234567890", "6289876543210"],
-  "message": "Hello {friend|there}!",
-  "useSpintax": true,
-  "delay": true
-}
-```
-
-**Validate Numbers:**
-```bash
-POST /api/v1/validate-numbers
-{
-  "sessionId": "session-id",
-  "numbers": ["6281234567890", "6289876543210"]
-}
-```
-
-### Queue
-
-**Get Queue:**
-```bash
-GET /api/v1/queue
-```
-
-**Get Queue Stats:**
-```bash
-GET /api/v1/queue/stats
-```
-
-**Pause Queue:**
-```bash
-POST /api/v1/queue/pause
-```
-
-**Resume Queue:**
-```bash
-POST /api/v1/queue/resume
-```
-
-**Retry Failed:**
-```bash
-POST /api/v1/queue/retry
-```
-
-### Webhooks
-
-**Create Webhook:**
-```bash
-POST /api/v1/webhooks
-{
-  "url": "https://your-app.com/webhook",
-  "secret": "webhook-secret",
-  "events": ["message.received", "message.sent"]
-}
-```
-
-**Get Webhooks:**
-```bash
-GET /api/v1/webhooks
-```
-
-**Delete Webhook:**
-```bash
-DELETE /api/v1/webhooks/{id}
-```
-
-### Stats
-
-**Get Stats:**
-```bash
-GET /api/v1/stats
-```
-
-**Get Activity Data:**
-```bash
-GET /api/v1/stats/activity
-```
+> **Catatan**: Tabel `contacts` memiliki UNIQUE constraint pada `(session_id, jid)` untuk memastikan nama kontak selalu terupdate dengan benar.
 
 ---
 
-## Anti-Block Best Practices
+## Contoh Penggunaan API
 
-1. **Warm-up New Numbers**: Start with low volume (10-20 messages/day) and gradually increase
-2. **Use Random Delays**: Always enable delay between messages
-3. **Use Spintax**: Vary message content to avoid spam detection
-4. **Validate Numbers**: Check if numbers are on WhatsApp before sending
-5. **Monitor Queue**: Keep an eye on failed messages and adjust settings
-6. **Avoid Bulk Spam**: Don't send to hundreds of numbers immediately
-7. **Use Multiple Sessions**: Distribute load across multiple numbers
+### Kirim Pesan (Per-Session Key)
+
+```bash
+curl -X POST https://watpm.tpm.co.id/api/v1/messages/send \
+  -H "X-API-Key: wak_xxxxxx_your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"6281234567890","type":"text","message":"Halo!"}'
+```
+
+### Kirim Bulk
+
+```bash
+curl -X POST https://watpm.tpm.co.id/api/v1/messages/bulk \
+  -H "X-API-Key: wak_xxxxxx_your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "uuid-session",
+    "recipients": ["6281234567890","6289876543210"],
+    "message": "{Halo|Hi} {nama}, tagihan bulan ini Rp 150.000",
+    "useSpintax": true,
+    "delay": true
+  }'
+```
+
+Lihat [docs/API-DOKUMENTASI.md](docs/API-DOKUMENTASI.md) untuk dokumentasi lengkap semua endpoint.
 
 ---
 
 ## Troubleshooting
 
-### Backend won't start (Windows)
-- Ensure GCC is installed: `gcc --version`
-- Check if data directory exists
-- Check port 9090 is not in use: `netstat -ano | findstr :9090`
+### Backend tidak start
+```bash
+# Cek PostgreSQL
+sudo systemctl status postgresql
+# Cek log
+pm2 logs wa-gateway-backend --err
+```
 
-### Frontend won't build
-- Clear npm cache: `npm cache clean --force`
-- Delete node_modules: `rm -rf node_modules && npm install`
+### QR Code tidak muncul
+- Pastikan session baru berhasil dibuat (lihat log: `QR code generated`)
+- QR auto-refresh setiap 2 detik via polling
+- Jika stuck, klik tombol Refresh di halaman Sessions
 
-### WhatsApp won't connect
-- Check internet connection
-- Ensure phone has active WhatsApp
-- Try reconnecting session
-- Check firewall settings
+### Kontak hanya tampil nomor
+- Kontak disync otomatis saat WhatsApp terhubung dan ada pesan masuk
+- Nama kontak diambil dari: `contact.name` → `verifiedName` → `notify` → `pushname`
+- Jika nama tidak tersedia dari WhatsApp, hanya nomor yang ditampilkan (normal)
 
-### Messages stuck in queue
-- Check if session is connected
-- Verify rate limiting settings
-- Check logs for errors
+### Pesan stuck di queue
+```bash
+# Cek status session
+curl http://localhost:9090/health
+# Lihat queue stats
+curl -H "X-API-Key: <key>" http://localhost:9090/api/v1/queue/stats
+```
+
+### Cek database langsung
+```bash
+PGPASSWORD=wagateway2024 psql -h localhost -U wagatewayuser -d wagateway
+# Cek sessions
+SELECT id, name, status, phone FROM sessions;
+# Cek kontak
+SELECT COUNT(*), session_id FROM contacts GROUP BY session_id;
+```
+
+---
+
+## Dokumentasi Lanjutan
+
+- 📚 [Dokumentasi API Lengkap](docs/API-DOKUMENTASI.md)
+- 🚀 [Panduan Deployment Production](docs/DEPLOYMENT.md)
 
 ---
 
 ## License
 
-MIT License - See LICENSE file for details
-
-## Support
-
-For issues and feature requests, please open an issue on GitHub.
+MIT License

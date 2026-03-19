@@ -13,7 +13,7 @@ export class WebhookDispatcher {
     this.db = db;
   }
 
-  private handleFailure(webhookId: string, error: string, event: string, body: string, threshold: number, resetTime: number) {
+  private async handleFailure(webhookId: string, error: string, event: string, body: string, threshold: number, resetTime: number) {
     const currentFailures = (this.failureCounts.get(webhookId) || 0) + 1;
     this.failureCounts.set(webhookId, currentFailures);
 
@@ -24,7 +24,7 @@ export class WebhookDispatcher {
       this.circuitOpenUntil.set(webhookId, Date.now() + resetTime);
     }
 
-    this.db.createWebhookLog({
+    await this.db.createWebhookLog({
       id: crypto.randomUUID(),
       webhookId: webhookId,
       event,
@@ -35,7 +35,7 @@ export class WebhookDispatcher {
   }
 
   async dispatch(event: string, payload: any): Promise<void> {
-    const webhooks = this.db.getAllWebhooks();
+    const webhooks = await this.db.getAllWebhooks();
 
     for (const webhook of webhooks) {
       // Check if webhook is subscribed to this event
@@ -103,7 +103,7 @@ export class WebhookDispatcher {
         const responseBody = await response.text();
         const success = response.status >= 200 && response.status < 300;
 
-        this.db.createWebhookLog({
+        await this.db.createWebhookLog({
           id: crypto.randomUUID(),
           webhookId: webhook.id,
           event,
@@ -114,7 +114,7 @@ export class WebhookDispatcher {
         });
 
         if (success) {
-          this.db.updateWebhook({ id: webhook.id, lastTriggered: new Date() });
+          await this.db.updateWebhook({ id: webhook.id, lastTriggered: new Date() });
 
           // Reset failure count on success
           this.failureCounts.set(webhook.id, 0);

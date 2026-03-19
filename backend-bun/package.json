@@ -6,7 +6,8 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun"
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "postinstall": "npx patch-package"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc.6",
@@ -40,7 +41,8 @@
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.18.0",
     "@types/qrcode": "^1.5.5",
-    "bun-types": "latest"
+    "bun-types": "latest",
+    "patch-package": "^8.0.1"
   },
   "module": "src/index.ts",
   "type": "module"

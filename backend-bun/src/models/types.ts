@@ -20,7 +20,7 @@ export interface Message {
   id: string;
   sessionId: string;
   to: string;
-  type: 'text' | 'image' | 'video' | 'document' | 'sticker' | 'audio';
+  type: 'text' | 'image' | 'video' | 'document' | 'sticker' | 'audio' | 'vcard';
   content?: string;
   mediaUrl?: string;
   fileName?: string;

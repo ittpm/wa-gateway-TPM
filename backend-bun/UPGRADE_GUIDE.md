@@ -16,19 +16,17 @@ bun install
 ```
 
 ### 2. Hapus Session Data Lama
-Hapus folder session untuk memastikan clean state:
+Hapus folder session Baileys untuk memastikan clean state:
 ```bash
-# Hapus database SQLite
+# Hapus data sesi Baileys (bukan database PostgreSQL!)
 rm -rf ./sessions
-rm -f ./database.db
+
+# Atau backup dulu
+mv ./sessions ./sessions.backup
 ```
 
-Atau jika ingin preserve data:
-```bash
-# Backup dulu
-mv ./sessions ./sessions.backup
-mv ./database.db ./database.db.backup
-```
+> ⚠️ Data percakapan tersimpan di PostgreSQL — tidak perlu hapus database.
+> Yang dihapus hanya file autentikasi Baileys di folder `sessions/`.
 
 ### 3. Restart Backend
 ```bash

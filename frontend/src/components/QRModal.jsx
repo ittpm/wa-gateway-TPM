@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X, RefreshCw, CheckCircle, Smartphone, Clock } from 'lucide-react'
 
-function QRModal({ qrCode, token, onClose, status, updatedAt }) {
+function QRModal({ qrCode, token, apiKey, onClose, status, updatedAt }) {
   const [countdown, setCountdown] = useState(30)
   const [connected, setConnected] = useState(false)
   const [dots, setDots] = useState('')
@@ -57,8 +57,11 @@ function QRModal({ qrCode, token, onClose, status, updatedAt }) {
   }, [status, onClose])
 
   const copyToken = () => {
-    navigator.clipboard.writeText(token)
-    alert('Token disalin!')
+    const toCopy = apiKey || token
+    if (toCopy) {
+      navigator.clipboard.writeText(toCopy)
+      alert(apiKey ? 'API Key disalin!' : 'Token disalin!')
+    }
   }
 
   const handleRetry = () => {
@@ -171,16 +174,18 @@ function QRModal({ qrCode, token, onClose, status, updatedAt }) {
                 </div>
               )}
 
-              {token && (
+              {(apiKey || token) && (
                 <div className="bg-blue-50 p-3 rounded-lg text-left">
-                  <p className="text-xs text-blue-700 font-medium mb-2">API Token Anda:</p>
+                  <p className="text-xs text-blue-700 font-medium mb-2">
+                    {apiKey ? '🔑 API Key (simpan untuk integrasi):' : 'API Token Anda:'}
+                  </p>
                   <div className="flex gap-2">
                     <code className="flex-1 bg-white px-2 py-1 rounded text-xs break-all">
-                      {token.substring(0, 20)}...
+                      {(apiKey || token).substring(0, 28)}...
                     </code>
                     <button
                       onClick={copyToken}
-                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                      className="text-blue-600 hover:text-blue-800 text-sm font-medium whitespace-nowrap"
                     >
                       Salin
                     </button>

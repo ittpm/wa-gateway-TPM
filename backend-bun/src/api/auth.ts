@@ -9,7 +9,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 // Create default superadmin user if no users exist
 export async function createDefaultUser(db: Database): Promise<void> {
     try {
-        const existingAdmin = db.getUserByUsername('admin');
+        const existingAdmin = await db.getUserByUsername('admin');
         if (!existingAdmin) {
             const hashedPassword = await bcrypt.hash('admin', 10);
             const defaultUser = {
@@ -20,12 +20,11 @@ export async function createDefaultUser(db: Database): Promise<void> {
                 createdAt: new Date(),
                 updatedAt: new Date()
             };
-            db.createUser(defaultUser);
+            await db.createUser(defaultUser);
             logger.info('[Auth] Default superadmin user created (username: admin, password: admin)');
         } else {
-            // Upgrade existing admin to superadmin if still 'admin' or 'user' role
             if (existingAdmin.role === 'admin' || (existingAdmin.role as string) === 'user') {
-                db.updateUserRole(existingAdmin.id, 'superadmin');
+                await db.updateUserRole(existingAdmin.id, 'superadmin');
                 logger.info('[Auth] Existing admin user upgraded to superadmin role');
             } else {
                 logger.info('[Auth] Superadmin user already exists');
@@ -52,7 +51,7 @@ export function setupAuthRoutes(db: Database): Router {
         try {
             const { username, password } = req.body;
 
-            const user = db.getUserByUsername(username);
+            const user = await db.getUserByUsername(username);
             if (!user || !user.password) {
                 return res.status(401).json({ error: 'Username atau password salah' });
             }
@@ -115,15 +114,14 @@ export function setupAuthRoutes(db: Database): Router {
     // ============ USER MANAGEMENT (Superadmin only) ============
 
     // Get all users
-    router.get('/users', (req: any, res) => {
+    router.get('/users', async (req: any, res) => {
         try {
-            // Auth check inline
             const token = req.cookies?.token || req.headers['authorization']?.split(' ')[1];
             if (!token) return res.status(401).json({ error: 'Tidak terautentikasi' });
             const decoded: any = jwt.verify(token, JWT_SECRET);
             if (decoded.role !== 'superadmin') return res.status(403).json({ error: 'Akses ditolak. Hanya Superadmin.' });
 
-            const users = db.getAllUsers();
+            const users = await db.getAllUsers();
             res.json(users);
         } catch (error: any) {
             res.status(500).json({ error: error.message });
@@ -148,7 +146,7 @@ export function setupAuthRoutes(db: Database): Router {
                 return res.status(400).json({ error: 'Role tidak valid. Pilih superadmin atau admin.' });
             }
 
-            const existing = db.getUserByUsername(username);
+            const existing = await db.getUserByUsername(username);
             if (existing) {
                 return res.status(409).json({ error: 'Username sudah digunakan' });
             }
@@ -163,7 +161,7 @@ export function setupAuthRoutes(db: Database): Router {
                 updatedAt: new Date()
             };
 
-            db.createUser(user);
+            await db.createUser(user);
             logger.info(`[Auth] User created: ${username} (${role}) by ${decoded.username}`);
 
             res.status(201).json({ message: 'User berhasil dibuat', username, role });
@@ -187,12 +185,12 @@ export function setupAuthRoutes(db: Database): Router {
                 return res.status(400).json({ error: 'Tidak bisa menghapus akun sendiri' });
             }
 
-            const user = db.getUserById(id);
+            const user = await db.getUserById(id);
             if (!user) {
                 return res.status(404).json({ error: 'User tidak ditemukan' });
             }
 
-            db.deleteUser(id);
+            await db.deleteUser(id);
             logger.info(`[Auth] User deleted: ${user.username} by ${decoded.username}`);
 
             res.json({ message: 'User berhasil dihapus' });
@@ -220,10 +218,10 @@ export function setupAuthRoutes(db: Database): Router {
                 return res.status(400).json({ error: 'Tidak bisa mengubah role akun sendiri' });
             }
 
-            const user = db.getUserById(id);
+            const user = await db.getUserById(id);
             if (!user) return res.status(404).json({ error: 'User tidak ditemukan' });
 
-            db.updateUserRole(id, role);
+            await db.updateUserRole(id, role);
             logger.info(`[Auth] User ${user.username} role changed to ${role} by ${decoded.username}`);
 
             res.json({ message: 'Role berhasil diubah' });
@@ -251,11 +249,11 @@ export function setupAuthRoutes(db: Database): Router {
                 return res.status(400).json({ error: 'Password minimal 6 karakter' });
             }
 
-            const user = db.getUserById(id);
+            const user = await db.getUserById(id);
             if (!user) return res.status(404).json({ error: 'User tidak ditemukan' });
 
             const hashedPassword = await bcrypt.hash(newPassword, 10);
-            db.updateUserPasswordById(id, hashedPassword);
+            await db.updateUserPasswordById(id, hashedPassword);
             logger.info(`[Auth] Password changed for user ${user.username}`);
 
             res.json({ message: 'Password berhasil diubah' });
@@ -272,11 +270,11 @@ export function setupAuthRoutes(db: Database): Router {
             }
 
             const { password = 'admin' } = req.body;
-            let admin = db.getUserByUsername('admin');
+            let admin = await db.getUserByUsername('admin');
             const hashedPassword = await bcrypt.hash(password, 10);
 
             if (admin) {
-                db.updateUserPassword('admin', hashedPassword);
+                await db.updateUserPassword('admin', hashedPassword);
                 logger.info('[Auth] Admin password reset');
             } else {
                 const newAdmin = {
@@ -287,7 +285,7 @@ export function setupAuthRoutes(db: Database): Router {
                     createdAt: new Date(),
                     updatedAt: new Date()
                 };
-                db.createUser(newAdmin);
+                await db.createUser(newAdmin);
                 logger.info('[Auth] Superadmin user created');
             }
 

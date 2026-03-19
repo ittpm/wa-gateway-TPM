@@ -1,6 +1,6 @@
-﻿# WA Gateway — Dokumentasi API Lengkap
+# WA Gateway — Dokumentasi API Lengkap
 
-> Versi: 1.1.0 | Diperbarui: Februari 2025 | Bahasa: Indonesia
+> Versi: 1.2.1 | Diperbarui: Maret 2026 | Bahasa: Indonesia
 
 ---
 
@@ -85,7 +85,7 @@ X-API-Key: <global_key>
 **Response:**
 ```json
 {
-  "id": "uuid-session",
+  "id": "8926a5b8-cf18-4081-9cdd-c678bd760410",
   "name": "Akun Bisnis 1",
   "status": "connecting",
   "apiKey": "wak_8926a5_b2872e786a734007b7dda9ab0a096ae9",
@@ -94,6 +94,8 @@ X-API-Key: <global_key>
 }
 ```
 > ⚠️ Simpan `apiKey` dengan aman. Ini adalah key untuk integrasi.
+
+> ℹ️ **Tentang field `id`**: Ini adalah UUID Session yang **dibuat otomatis oleh sistem** — Anda **tidak perlu** membuat atau menginputnya. UUID ini hanya dipakai di URL path (contoh: `GET /sessions/{id}/qr`) dan sudah tertanam di dalam `apiKey`. Saat mengirim pesan, cukup gunakan `apiKey` saja.
 
 ### 3. Ambil QR Code
 ```http
@@ -212,11 +214,11 @@ POST /api/v1/messages/send-media
 Content-Type: multipart/form-data
 X-API-Key: wak_xxxxx_yyy
 
-sessionId: <id-session>  (opsional jika pakai per-session key)
 to: 6281234567890
 caption: Ini file nya
 file: <binary_file>
 ```
+> `sessionId` **tidak perlu** jika pakai Per-Session API Key. Hanya diperlukan jika pakai Global API Key.
 
 ### 12. Kirim Bulk / Massal
 ```http
@@ -225,19 +227,21 @@ Content-Type: application/json
 X-API-Key: wak_xxxxx_yyy
 
 {
-  "sessionId": "uuid-session",
   "recipients": ["6281234567890", "6289876543210"],
   "message": "Halo {teman|saudara|rekan}!",
   "useSpintax": true,
   "delay": true
 }
 ```
+> `sessionId` **tidak perlu disertakan** jika menggunakan Per-Session API Key — sesi sudah terdeteksi otomatis dari key. ✅
+
+> Jika menggunakan **Global API Key**, tambahkan `"sessionId": "<id-dari-GET-/sessions>"` untuk menentukan sesi mana yang dipakai.
 
 **Response:**
 ```json
 {
   "queued": 2,
-  "messageIds": ["uuid-1", "uuid-2"],
+  "messageIds": ["<uuid-otomatis-1>", "<uuid-otomatis-2>"],
   "status": "queued",
   "message": "2 pesan ditambahkan ke antrean"
 }
@@ -577,4 +581,4 @@ print(f"Message ID: {result.get('messageId')}")
 
 ---
 
-*Dokumentasi ini diperbarui setiap ada perubahan fitur. Versi: 1.1.0*
+*Dokumentasi ini diperbarui setiap ada perubahan fitur. Versi: 1.2.1*

@@ -192,6 +192,13 @@ async function main() {
     const authRouter = setupAuthRoutes(db);
     app.use('/api/v1/auth', authRouter);
 
+    // Serve uploaded files (media attachments)
+    const uploadsPath = join(process.cwd(), 'uploads');
+    app.use('/uploads', express.static(uploadsPath, {
+      maxAge: '1d',
+      etag: true,
+    }));
+
     setupRoutes(app, db, connectionManager, queueManager, webhookDispatcher);
 
     // Log 404s

@@ -3,6 +3,24 @@ import { Trash2, XCircle, Image as ImageIcon, FileText, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../services/api';
 
+// Konversi path lokal server (/opt/.../uploads/file.jpg) ke URL HTTP (/uploads/file.jpg)
+// yang bisa diakses browser melalui backend endpoint /uploads
+function getMediaUrl(mediaUrl) {
+    if (!mediaUrl) return null;
+    // Sudah berupa URL http/https atau data URI → langsung pakai
+    if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://') || mediaUrl.startsWith('data:')) {
+        return mediaUrl;
+    }
+    // Path lokal: ambil bagian setelah '/uploads/'
+    const uploadsIndex = mediaUrl.indexOf('/uploads/');
+    if (uploadsIndex !== -1) {
+        const relativePath = mediaUrl.substring(uploadsIndex); // → /uploads/...
+        return relativePath; // Nginx/backend akan serve ini
+    }
+    // Fallback: coba gunakan apa adanya
+    return mediaUrl;
+}
+
 export default function History() {
     const [messages, setMessages] = useState([]);
     const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
@@ -279,23 +297,29 @@ export default function History() {
                             {selectedMessage.mediaUrl && (
                                 <div>
                                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Lampiran Media:</p>
-                                    {selectedMessage.mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)$/i) || selectedMessage.mediaUrl.startsWith('data:image') || selectedMessage.type === 'image' ? (
-                                        <div className="rounded-lg overflow-hidden border border-gray-200 bg-gray-50 flex justify-center p-2">
-                                            <img src={selectedMessage.mediaUrl} alt="Media lampiran" className="max-w-full h-auto max-h-80 object-contain rounded" />
-                                        </div>
-                                    ) : (
-                                        <div className="flex items-center gap-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                                            <div className="bg-white p-2 rounded-full shadow-sm">
-                                                <FileText className="w-6 h-6 text-blue-500" />
+                                    {(() => {
+                                        const httpUrl = getMediaUrl(selectedMessage.mediaUrl);
+                                        const isImage = selectedMessage.type === 'image' ||
+                                            selectedMessage.mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)$/i) ||
+                                            selectedMessage.mediaUrl.startsWith('data:image');
+                                        return isImage ? (
+                                            <div className="rounded-lg overflow-hidden border border-gray-200 bg-gray-50 flex justify-center p-2">
+                                                <img src={httpUrl} alt="Media lampiran" className="max-w-full h-auto max-h-80 object-contain rounded" />
                                             </div>
-                                            <div>
-                                                <p className="font-medium text-blue-900 text-sm">Dokumen / Media Lainnya</p>
-                                                <a href={selectedMessage.mediaUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 mt-1">
-                                                    Lihat / Unduh File
-                                                </a>
+                                        ) : (
+                                            <div className="flex items-center gap-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                                                <div className="bg-white p-2 rounded-full shadow-sm">
+                                                    <FileText className="w-6 h-6 text-blue-500" />
+                                                </div>
+                                                <div>
+                                                    <p className="font-medium text-blue-900 text-sm">Dokumen / Media Lainnya</p>
+                                                    <a href={httpUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 mt-1">
+                                                        Lihat / Unduh File
+                                                    </a>
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
+                                        );
+                                    })()}
                                 </div>
                             )}
                         </div>

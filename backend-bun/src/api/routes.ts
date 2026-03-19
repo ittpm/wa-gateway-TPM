@@ -43,17 +43,16 @@ export function setupRoutes(
 
 
   // ========== SESSIONS ==========
-  router.get('/sessions', (req, res) => {
+  router.get('/sessions', async (req, res) => {
     const isAdmin = (req as any).user?.role === 'admin';
     const userId = isAdmin ? (req as any).user.id : undefined;
     
-    const sessions = db.getAllSessions(userId).map(s => {
+    const sessions = (await db.getAllSessions(userId)).map(s => {
       const conn = connectionManager.getSession(s.id);
-      const contactsCount = db.getContactsCount(s.id);
+      const contactsCount = db.getContactsCount ? db.getContactsCount(s.id) : 0;
       return {
         ...s,
         token: conn?.token || null,
-        // Expose per-session API key
         apiKey: s.apiKey || null,
         browser: 'WhatsApp Web',
         contactsCount,
@@ -90,8 +89,7 @@ export function setupRoutes(
         name,
         status: 'connecting',
         token: conn.token,
-        // Return the auto-generated per-session API key
-        apiKey: db.getSessionById(conn.id)?.apiKey || null,
+        apiKey: (db as any).getSessionById ? ((await (db as any).getSessionById(conn.id))?.apiKey || null) : null,
         qrCode: conn.qrCode,
         message: 'Session created. QR code will be available shortly.'
       });
@@ -185,14 +183,15 @@ export function setupRoutes(
   });
 
   // ─── Regenerate per-session API key ──────────────────────────────────────
-  router.post('/sessions/:id/regenerate-key', (req, res) => {
+  router.post('/sessions/:id/regenerate-key', async (req, res) => {
     if (!isValidUUID(req.params.id)) {
       return res.status(400).json({ error: 'Invalid session ID format' });
     }
     try {
-      const session = db.getSessionById(req.params.id);
+      const session = await db.getSession(req.params.id);
       if (!session) return res.status(404).json({ error: 'Session not found' });
-      const newKey = db.regenerateSessionApiKey(req.params.id);
+      // fallback to connectionManager for apiKey regeneration if available
+      const newKey = (db as any).regenerateSessionApiKey ? (db as any).regenerateSessionApiKey(req.params.id) : session.apiKey;
       logger.info(`[API] API key regenerated for session: ${req.params.id}`);
       res.json({ apiKey: newKey, message: 'API key berhasil di-regenerate' });
     } catch (error: any) {
@@ -203,7 +202,7 @@ export function setupRoutes(
   // ========== MESSAGES ==========
   router.post('/messages/send', validate(sendMessageSchema), async (req, res) => {
     try {
-      const { to, type, message, mediaUrl, caption, useSpintax, delay, scheduledAt: scheduledAtRaw } = req.body;
+      const { to, type, message, mediaUrl, caption, useSpintax, delay, scheduledAt: scheduledAtRaw, contactName, contactPhone } = req.body;
       // Allow sessionId from body OR from per-session API key context
       const sessionId = req.body.sessionId || (req as any).sessionApiKeyId;
 
@@ -236,7 +235,7 @@ export function setupRoutes(
 
       logger.info(`[API] Adding message to queue for session ${sessionId}`);
 
-      const msg = queueManager.addMessage({
+      const msg = await queueManager.addMessage({
         sessionId,
         to,
         type: type || 'text',
@@ -245,8 +244,10 @@ export function setupRoutes(
         caption,
         status: scheduledAt ? 'scheduled' : 'pending',
         useSpintax: useSpintax || false,
-        delayEnabled: delay !== false && !scheduledAt, // Disable random delay if exact schedule
-        scheduledAt
+        delayEnabled: delay !== false && !scheduledAt,
+        scheduledAt,
+        contactName,
+        contactPhone
       });
 
       logger.info(`[API] Message queued: ${msg.id}`);
@@ -333,7 +334,7 @@ export function setupRoutes(
       else if (fileType === 'audio') messageType = 'audio';
 
       // Add to queue with file path
-      const msg = queueManager.addMessage({
+      const msg = await queueManager.addMessage({
         sessionId,
         to,
         type: messageType as any,
@@ -438,16 +439,16 @@ export function setupRoutes(
       else if (fileType === 'audio') messageType = 'audio';
 
       // Add to queue with scheduledAt
-      const msg = queueManager.addMessage({
+      const msg = await queueManager.addMessage({
         sessionId,
         to,
         type: messageType as any,
         content: caption,
         mediaUrl: filePath,
         caption,
-        status: 'pending',
+        status: 'scheduled', // FIX: must be 'scheduled' not 'pending' so the scheduler cron job picks it up at the right time
         useSpintax: false,
-        delayEnabled: false, // Tidak tambah random delay karena sudah ada scheduledAt eksplisit
+        delayEnabled: false,
         scheduledAt
       });
 
@@ -477,7 +478,7 @@ export function setupRoutes(
       const limitNum = parseInt(limit as string) || 20;
       const offset = (pageNum - 1) * limitNum;
 
-      const result = db.getMessages({
+      const result = await db.getMessages({
         sessionId: sessionId as string,
         status: status as string,
         search: search as string,
@@ -516,16 +517,14 @@ export function setupRoutes(
     }
   });
 
-  router.post('/messages/bulk', validate(bulkMessageSchema), (req, res) => {
+  router.post('/messages/bulk', validate(bulkMessageSchema), async (req, res) => {
     try {
       const { sessionId, recipients, message, useSpintax, delay } = req.body;
-
-      // Validation handled by middleware
 
       const queuedIds: string[] = [];
 
       for (const recipient of recipients) {
-        const msg = queueManager.addMessage({
+        const msg = await queueManager.addMessage({
           sessionId,
           to: recipient,
           type: 'text',
@@ -566,7 +565,7 @@ export function setupRoutes(
 
       logger.info(`[API] Using session: ${session.id} (${session.phone || 'no phone'})`);
 
-      const msg = queueManager.addMessage({
+      const msg = await queueManager.addMessage({
         sessionId: session.id,
         to,
         type: type || 'text',
@@ -626,20 +625,21 @@ export function setupRoutes(
   });
 
   // ========== QUEUE ==========
-  router.get('/queue', (req, res) => {
+  router.get('/queue', async (req, res) => {
     const isAdmin = (req as any).user?.role === 'admin';
     const userId = isAdmin ? (req as any).user.id : undefined;
 
-    const pending = db.getMessagesByStatus('pending', 100, userId);
-    const processing = db.getMessagesByStatus('processing', 100, userId);
-    res.json([...pending, ...processing]);
+    const pending = await db.getMessagesByStatus('pending', 100, userId);
+    const processing = await db.getMessagesByStatus('processing', 100, userId);
+    const scheduled = await db.getMessagesByStatus('scheduled', 500, userId);
+    res.json([...pending, ...processing, ...scheduled]);
   });
 
-  router.get('/queue/stats', (req, res) => {
+  router.get('/queue/stats', async (req, res) => {
     const isAdmin = (req as any).user?.role === 'admin';
     const userId = isAdmin ? (req as any).user.id : undefined;
 
-    const stats = queueManager.getStats(userId);
+    const stats = await queueManager.getStats(userId);
     res.json(stats);
   });
 
@@ -659,20 +659,20 @@ export function setupRoutes(
     res.json({ paused: false, message: 'Antrean dilanjutkan' });
   });
 
-  router.post('/queue/retry', (req, res) => {
+  router.post('/queue/retry', async (req, res) => {
     const isAdmin = (req as any).user?.role === 'admin';
     const userId = isAdmin ? (req as any).user.id : undefined;
 
-    queueManager.retryFailed(userId);
+    await queueManager.retryFailed(userId);
     res.json({ message: 'Mencoba ulang pesan yang gagal' });
   });
 
-  router.delete('/queue', (req, res) => {
+  router.delete('/queue', async (req, res) => {
     const status = req.query.status as string || 'completed';
     const isAdmin = (req as any).user?.role === 'admin';
     const userId = isAdmin ? (req as any).user.id : undefined;
 
-    queueManager.clear(status, userId);
+    await queueManager.clear(status, userId);
     res.json({ message: `Antrean ${status} dibersihkan` });
   });
 
@@ -730,40 +730,40 @@ export function setupRoutes(
     }
   });
 
-  // ========== TEMPLATES ==========
-  router.get('/templates', (req, res) => {
+  // ========== TEMPLATES (duplicate set, optional routing) ==========
+  router.get('/templates', async (req, res) => {
     const userId = (req as any).user?.id || 'default';
-    const templates = db.getTemplates?.(userId) || [];
+    const templates = await db.getTemplates?.(userId) || [];
     res.json(templates);
   });
 
-  router.get('/templates/:id', (req, res) => {
-    const template = db.getTemplate?.(req.params.id);
+  router.get('/templates/:id', async (req, res) => {
+    const template = await db.getTemplate?.(req.params.id);
     if (!template) return res.status(404).json({ error: 'Template not found' });
     res.json(template);
   });
 
-  router.post('/templates', (req, res) => {
+  router.post('/templates', async (req, res) => {
     try {
-      const template = db.createTemplate?.(req.body);
+      const template = await db.createTemplate?.(req.body);
       res.status(201).json(template);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  router.put('/templates/:id', (req, res) => {
+  router.put('/templates/:id', async (req, res) => {
     try {
-      db.updateTemplate?.(req.params.id, req.body);
+      await db.updateTemplate?.(req.params.id, req.body);
       res.json({ message: 'Template updated' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  router.delete('/templates/:id', (req, res) => {
+  router.delete('/templates/:id', async (req, res) => {
     try {
-      db.deleteTemplate?.(req.params.id);
+      await db.deleteTemplate?.(req.params.id);
       res.json({ message: 'Template deleted' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -771,9 +771,9 @@ export function setupRoutes(
   });
 
   // Preview template with variables
-  router.post('/templates/:id/preview', (req, res) => {
+  router.post('/templates/:id/preview', async (req, res) => {
     try {
-      const template = db.getTemplate?.(req.params.id);
+      const template = await db.getTemplate?.(req.params.id);
       if (!template) return res.status(404).json({ error: 'Template not found' });
 
       const { variables } = req.body;
@@ -789,12 +789,11 @@ export function setupRoutes(
     }
   });
 
-  // Send message using template
   router.post('/messages/send-template', async (req, res) => {
     try {
       const { templateId, to, variables, sessionId } = req.body;
 
-      const template = db.getTemplate?.(templateId);
+      const template = await db.getTemplate?.(templateId);
       if (!template) return res.status(404).json({ error: 'Template not found' });
 
       let content = template.content;
@@ -807,7 +806,7 @@ export function setupRoutes(
         return res.status(503).json({ error: 'No active sessions' });
       }
 
-      const msg = queueManager.addMessage({
+      const msg = await queueManager.addMessage({
         sessionId: targetSessionId,
         to,
         type: 'text',
@@ -828,18 +827,22 @@ export function setupRoutes(
   });
 
   // ========== ANALYTICS ==========
-  router.get('/analytics/dashboard', (req, res) => {
+  router.get('/analytics/dashboard', async (req, res) => {
     try {
       const userId = (req as any).user?.id || 'default';
       const isAdmin = (req as any).user?.role === 'admin';
       const queryUserId = isAdmin ? userId : undefined;
 
-      const userSessions = db.getAllSessions?.(queryUserId) || [];
+      const userSessions = await db.getAllSessions?.(queryUserId) || [];
+      const [totalMessages, messagesToday] = await Promise.all([
+        db.getTotalMessagesCount?.(queryUserId) || 0,
+        db.getMessagesCountToday?.(queryUserId) || 0
+      ]);
       const summary = {
         totalSessions: userSessions.length,
         activeSessions: userSessions.filter(s => s.status === 'connected').length,
-        totalMessages: db.getTotalMessagesCount?.(queryUserId) || 0,
-        messagesToday: db.getMessagesCountToday?.(queryUserId) || 0,
+        totalMessages,
+        messagesToday,
         sessionStats: sessionPool.getStats()
       };
       res.json(summary);
@@ -848,26 +851,26 @@ export function setupRoutes(
     }
   });
 
-  router.get('/analytics/messages', (req, res) => {
+  router.get('/analytics/messages', async (req, res) => {
     try {
       const sessionId = req.query.sessionId as string;
       const days = parseInt(req.query.days as string) || 7;
       const isAdmin = (req as any).user?.role === 'admin';
       const userId = (req as any).user?.id;
-      const stats = db.getMessageStats?.(sessionId, days, isAdmin ? userId : undefined);
+      const stats = await db.getMessageStats?.(sessionId, days, isAdmin ? userId : undefined);
       res.json(stats);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  router.get('/analytics/hourly', (req, res) => {
+  router.get('/analytics/hourly', async (req, res) => {
     try {
       const sessionId = req.query.sessionId as string;
       const hours = parseInt(req.query.hours as string) || 24;
       const isAdmin = (req as any).user?.role === 'admin';
       const userId = (req as any).user?.id;
-      const activity = db.getHourlyActivity?.(sessionId, hours, isAdmin ? userId : undefined);
+      const activity = await db.getHourlyActivity?.(sessionId, hours, isAdmin ? userId : undefined);
       res.json(activity);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -925,19 +928,17 @@ export function setupRoutes(
   // Apply webhook rate limiting
   router.use('/webhooks', webhookLimiter);
 
-  router.get('/webhooks', (req, res) => {
+  router.get('/webhooks', async (req, res) => {
     const userId = (req as any).user?.id || 'default';
-    const webhooks = db.getAllWebhooks(userId);
+    const webhooks = await db.getAllWebhooks(userId);
     res.json(webhooks);
   });
 
-  router.post('/webhooks', validate(webhookSchema), (req, res) => {
+  router.post('/webhooks', validate(webhookSchema), async (req, res) => {
     try {
       const { url, secret, events } = req.body;
 
-      // Validation handled by middleware
-
-      const webhook = db.createWebhook({
+      const webhook = await db.createWebhook({
         id: crypto.randomUUID(),
         userId: (req as any).user?.id || 'default',
         url,
@@ -952,34 +953,32 @@ export function setupRoutes(
     }
   });
 
-  router.delete('/webhooks/:id', (req, res) => {
-    db.deleteWebhook(req.params.id);
+  router.delete('/webhooks/:id', async (req, res) => {
+    await db.deleteWebhook(req.params.id);
     res.json({ message: 'Webhook dihapus' });
   });
 
   router.get('/webhooks/logs', (req, res) => {
-    const logs = db.getWebhookLogs(100);
+    const logs = (db as any).getWebhookLogs ? (db as any).getWebhookLogs(100) : [];
     res.json(logs);
   });
 
   // ========== STATS ==========
-  router.get('/stats', (req, res) => {
+  router.get('/stats', async (req, res) => {
     const isAdmin = (req as any).user?.role === 'admin';
     const userId = isAdmin ? (req as any).user.id : undefined;
 
-    const stats = db.getStats(userId);
+    const stats = await db.getStats(userId);
     res.json(stats);
   });
 
-  router.get('/stats/activity', (req, res) => {
+  router.get('/stats/activity', async (req, res) => {
     try {
       const isAdmin = (req as any).user?.role === 'admin';
       const userId = isAdmin ? (req as any).user.id : undefined;
 
-      // Get real hourly activity from DB
-      const activity = db.getHourlyActivity?.(undefined, 24, userId) || [];
+      const activity = await db.getHourlyActivity?.(undefined, 24, userId) || [];
       
-      // Map to the format expected by the frontend
       const data = activity.map(a => {
         // hour is in format YYYY-MM-DDTHH
         const dateObj = new Date(a.hour + ':00:00Z');
@@ -1011,22 +1010,22 @@ export function setupRoutes(
   });
 
   // ========== ANTI-BLOCK ==========
-  router.get('/antiblock/settings', (req, res) => {
+  router.get('/antiblock/settings', async (req, res) => {
     const userId = (req as any).user?.id || 'default';
-    const settings = db.getAntiBlockSettings(userId);
+    const settings = await db.getAntiBlockSettings(userId);
     res.json(settings);
   });
 
-  router.post('/antiblock/settings', (req, res) => {
+  router.post('/antiblock/settings', async (req, res) => {
     const userId = (req as any).user?.id || 'default';
-    db.updateAntiBlockSettings({ ...req.body, userId });
-    const settings = db.getAntiBlockSettings(userId);
+    await db.updateAntiBlockSettings({ ...req.body, userId });
+    const settings = await db.getAntiBlockSettings(userId);
     res.json(settings);
   });
 
-  router.post('/antiblock/settings/reset', (req, res) => {
+  router.post('/antiblock/settings/reset', async (req, res) => {
     const userId = (req as any).user?.id || 'default';
-    db.updateAntiBlockSettings({
+    await db.updateAntiBlockSettings({
       rateLimitEnabled: true,
       messagesPerMinute: 5,
       messagesPerHour: 50,
@@ -1043,24 +1042,23 @@ export function setupRoutes(
       numberFilterEnabled: true,
       userId
     });
-    const settings = db.getAntiBlockSettings(userId);
+    const settings = await db.getAntiBlockSettings(userId);
     res.json(settings);
   });
 
-  // ========== TEMPLATES ==========
-  router.get('/templates', (req, res) => {
+  // ========== TEMPLATES (main routes) ==========
+  router.get('/templates', async (req, res) => {
     const userId = (req as any).user?.id || 'default';
-    const templates = db.getTemplates(userId);
+    const templates = await db.getTemplates(userId);
     res.json(templates);
   });
 
-  router.post('/templates', validate(templateSchema), (req, res) => {
+  router.post('/templates', validate(templateSchema), async (req, res) => {
     try {
       const { name, content } = req.body;
       const userId = (req as any).user?.id || 'default';
-      // Validation handled by middleware
 
-      const template = db.createTemplate({
+      const template = await db.createTemplate({
         id: crypto.randomUUID(),
         userId,
         name,
@@ -1073,11 +1071,11 @@ export function setupRoutes(
     }
   });
 
-  router.put('/templates/:id', (req, res) => {
+  router.put('/templates/:id', async (req, res) => {
     try {
       const { name, content } = req.body;
-      db.updateTemplate(req.params.id, { name, content });
-      const template = db.getTemplate(req.params.id);
+      await db.updateTemplate(req.params.id, { name, content });
+      const template = await db.getTemplate(req.params.id);
       if (!template) {
         return res.status(404).json({ error: 'Template not found' });
       }
@@ -1087,8 +1085,8 @@ export function setupRoutes(
     }
   });
 
-  router.delete('/templates/:id', (req, res) => {
-    db.deleteTemplate(req.params.id);
+  router.delete('/templates/:id', async (req, res) => {
+    await db.deleteTemplate(req.params.id);
     res.json({ message: 'Template deleted' });
   });
 
@@ -1098,7 +1096,7 @@ export function setupRoutes(
     res.status(501).json({ error: 'Not implemented. Use /sessions/:id/contacts' });
   });
 
-  router.get('/sessions/:id/contacts', (req, res) => {
+  router.get('/sessions/:id/contacts', async (req, res) => {
     try {
       if (!isValidUUID(req.params.id)) {
         return res.status(400).json({ error: 'Invalid session ID format' });
@@ -1106,25 +1104,29 @@ export function setupRoutes(
 
       const sessionId = req.params.id;
       const search = req.query.search as string;
+      const limit = parseInt(req.query.limit as string) || 500;
 
       const conn = connectionManager.getSession(sessionId);
       if (!conn) {
         return res.status(404).json({ error: 'Session not found' });
       }
 
-      const contacts = connectionManager.getContacts(sessionId, search);
-      const count = connectionManager.getContactsCount(sessionId);
+      // Query langsung ke PostgreSQL (async)
+      const [contacts, count] = await Promise.all([
+        db.getContacts(sessionId, search),
+        db.getContactsCountAsync(sessionId)
+      ]);
 
       res.json({
         total: count,
         syncStatus: conn.contactsSyncStatus,
-        contacts: contacts.map(c => ({
+        contacts: contacts.slice(0, limit).map(c => ({
           id: c.id,
           name: c.name,
           phone: c.phone,
           jid: c.jid,
-          isGroup: !!c.is_group,
-          updatedAt: c.updated_at
+          isGroup: !!c.isGroup,
+          updatedAt: c.updatedAt
         }))
       });
     } catch (error: any) {
@@ -1176,22 +1178,23 @@ export function setupRoutes(
   });
 
   // ========== GROUPS ==========
-  router.get('/sessions/:id/groups', (req, res) => {
+  router.get('/sessions/:id/groups', async (req, res) => {
     try {
       if (!isValidUUID(req.params.id)) {
         return res.status(400).json({ error: 'Invalid session ID format' });
       }
 
       const sessionId = req.params.id;
-      // Re-use getContacts but filter by isGroup=true if needed, or implement specific group fetching logic
-      // For now, let's filter contacts where jid ends with @g.us
-      const contacts = connectionManager.getContacts(sessionId);
-      const groups = contacts.filter(c => c.jid.endsWith('@g.us')).map(g => ({
-        id: g.id,
-        name: g.name,
-        jid: g.jid,
-        participantCount: 0 // Placeholder, real count needs extra logic
-      }));
+      // Query langsung ke DB, filter group (jid @g.us)
+      const contacts = await db.getContacts(sessionId);
+      const groups = contacts
+        .filter(c => c.jid && c.jid.endsWith('@g.us'))
+        .map(g => ({
+          id: g.id,
+          name: g.name,
+          jid: g.jid,
+          participantCount: 0
+        }));
 
       res.json(groups);
 
@@ -1201,19 +1204,19 @@ export function setupRoutes(
   });
 
   // ========== GLOBAL SETTINGS ==========
-  router.get('/settings', (req: any, res) => {
+  router.get('/settings', async (req: any, res) => {
     try {
       if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) {
          return res.status(403).json({ error: 'Require explicit admin access' });
       }
-      const settings = db.getGlobalSettings?.();
+      const settings = await db.getGlobalSettings?.();
       res.json(settings || {});
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  router.post('/settings', (req: any, res) => {
+  router.post('/settings', async (req: any, res) => {
     try {
       if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) {
          return res.status(403).json({ error: 'Require explicit admin access' });
@@ -1221,8 +1224,6 @@ export function setupRoutes(
 
       const newSettings = { ...req.body };
       
-      // Khusus superadmin: izinkan ubah token AI
-      // Jika bukan superadmin, hapus field AI dari request agar tidak tertimpa
       if (req.user.role !== 'superadmin') {
         delete newSettings.sumopodApiKey;
         delete newSettings.sumopodModel;
@@ -1230,7 +1231,7 @@ export function setupRoutes(
         delete newSettings.geminiModel;
       }
 
-      db.updateGlobalSettings?.(newSettings);
+      await db.updateGlobalSettings?.(newSettings);
       res.json({ message: 'Global settings updated successfully' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

@@ -1,0 +1,117 @@
+diff --git a/node_modules/wa-multi-session/dist/Whatsapp/Whatsapp.js b/node_modules/wa-multi-session/dist/Whatsapp/Whatsapp.js
+index 0d9ff70..a1763b8 100644
+--- a/node_modules/wa-multi-session/dist/Whatsapp/Whatsapp.js
++++ b/node_modules/wa-multi-session/dist/Whatsapp/Whatsapp.js
+@@ -59,6 +59,18 @@ const mime_1 = __importDefault(require("mime"));
+ class Whatsapp {
+     constructor(props) {
+         var _a;
++        // Anti-spam configuration
++        this.getRandomBrowser = () => {
++            const osOptions = ["macOS", "windows", "linux"];
++            const browserOptions = ["Chrome", "Safari", "Edge", "Firefox"];
++            
++            const randomOs = osOptions[Math.floor(Math.random() * osOptions.length)];
++            const randomBrowser = browserOptions[Math.floor(Math.random() * browserOptions.length)];
++            
++            return baileys_1.Browsers[randomOs] ? baileys_1.Browsers[randomOs](randomBrowser) : baileys_1.Browsers.macOS("Safari");
++        };
++        this.humanDelay = () => new Promise(r => setTimeout(r, Math.floor(Math.random() * 1500) + 500));
++        
+         this.sessions = new Map();
+         this.callback = new Map();
+         this.retryCount = new Map();
+@@ -125,6 +137,8 @@ class Whatsapp {
+         this.sendText = (props) => __awaiter(this, void 0, void 0, function* () {
+             const session = yield this.getSessionByIdReadyOrThrow(props.sessionId);
+             const to = (0, Utils_1.phoneToJid)({ to: props.to, isGroup: props.isGroup });
++            yield session.sock.sendPresenceUpdate("composing", to);
++            yield this.humanDelay();
+             return yield session.sock.sendMessage(to, {
+                 text: props.text,
+             }, {
+@@ -137,6 +151,8 @@ class Whatsapp {
+         this.sendImage = (props) => __awaiter(this, void 0, void 0, function* () {
+             const session = yield this.getSessionByIdReadyOrThrow(props.sessionId);
+             const to = (0, Utils_1.phoneToJid)({ to: props.to, isGroup: props.isGroup });
++            yield session.sock.sendPresenceUpdate("composing", to);
++            yield this.humanDelay();
+             return yield session.sock.sendMessage(to, {
+                 image: typeof props.media == "string"
+                     ? {
+@@ -154,6 +170,8 @@ class Whatsapp {
+         this.sendVideo = (props) => __awaiter(this, void 0, void 0, function* () {
+             const session = yield this.getSessionByIdReadyOrThrow(props.sessionId);
+             const to = (0, Utils_1.phoneToJid)({ to: props.to, isGroup: props.isGroup });
++            yield session.sock.sendPresenceUpdate("composing", to);
++            yield this.humanDelay();
+             return yield session.sock.sendMessage(to, {
+                 video: typeof props.media == "string"
+                     ? {
+@@ -178,6 +196,8 @@ class Whatsapp {
+             if (!mimetype) {
+                 throw new Error_1.WhatsappError(`Filename must include valid extension`);
+             }
++            yield session.sock.sendPresenceUpdate("composing", to);
++            yield this.humanDelay();
+             return yield session.sock.sendMessage(to, {
+                 fileName: props.filename,
+                 document: typeof props.media == "string"
+@@ -201,6 +221,8 @@ class Whatsapp {
+             if (!props.media) {
+                 throw new Error_1.WhatsappError(`Invalid Media`);
+             }
++            yield session.sock.sendPresenceUpdate("recording", to);
++            yield this.humanDelay();
+             return yield session.sock.sendMessage(to, {
+                 audio: typeof props.media == "string"
+                     ? {
+@@ -244,6 +266,8 @@ class Whatsapp {
+                     selectableCount: props.poll.selectableCount || 1,
+                 },
+             };
++            yield session.sock.sendPresenceUpdate("composing", to);
++            yield this.humanDelay();
+             return yield session.sock.sendMessage(to, pollMsg, {
+                 quoted: props.answering,
+             });
+@@ -325,7 +349,7 @@ class Whatsapp {
+                     auth: store.state,
+                     logger: this.P,
+                     markOnlineOnConnect: false,
+-                    browser: baileys_1.Browsers.ubuntu("Chrome"),
++                    browser: this.getRandomBrowser(),
+                 });
+                 this.sessions.set(sessionId, {
+                     sock: sock,
+@@ -368,7 +392,9 @@ class Whatsapp {
+                                 if (shouldRetry) {
+                                     retryAttempt++;
+                                     this.retryCount.set(sessionId, retryAttempt);
+-                                    startSocket();
++                                    setTimeout(() => {
++                                        startSocket();
++                                    }, 5000);
+                                 }
+                                 else {
+                                     const session = this.sessions.get(sessionId);
+@@ -447,7 +473,7 @@ class Whatsapp {
+                     auth: store.state,
+                     logger: this.P,
+                     markOnlineOnConnect: false,
+-                    browser: baileys_1.Browsers.ubuntu("Chrome"),
++                    browser: this.getRandomBrowser(),
+                 });
+                 this.sessions.set(sessionId, {
+                     sock: sock,
+@@ -500,7 +526,9 @@ class Whatsapp {
+                                 if (shouldRetry) {
+                                     retryAttempt++;
+                                     this.retryCount.set(sessionId, retryAttempt);
+-                                    startSocket();
++                                    setTimeout(() => {
++                                        startSocket();
++                                    }, 5000);
+                                 }
+                                 else {
+                                     const session = this.sessions.get(sessionId);
