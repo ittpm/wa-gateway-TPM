@@ -9,6 +9,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning 
 
 ---
 
+## [2026-03-20] — Fix Session Restore & Missing QR Code
+
+### Fixed
+- **QR Code tidak muncul (loading macet terus-menerus)** (`src/connection/manager.ts`)
+  - **Root Cause 1**: `wa-multi-session` memiliki `autoLoad: true` secara default, menyebabkan proses mengembalikan session berjalan duluan sebelum `manager.ts` mendaftarkan referensinya ke dalam *memory map*. Hal ini membuat event `onQRUpdated` diabaikan, dan status tidak dikirim ke frontend.
+  - **Root Cause 2**: Saat mendeteksi session yang sudah terdaftar, `restoreSessionInternal` memanggil `reconnectSession`, yang ternyata di dalamnya memanggil `deleteSession`. Metode dari pihak ke-3 ini secara fatal menghapus seluruh data kredensial / auth di SQLite. Ini membuat user selalu ter-[logout paksa] saat backend direstart.
+  - **Fix 1**: Menonaktifkan `autoLoad: false` di `new Whatsapp({...})`. Semua permulaan session kini sepenuhnya di-handle manual oleh `manager.ts` agar event listener terdaftar dengan urutan yang benar.
+  - **Fix 2**: `restoreSessionInternal` tidak lagi menggunakan `reconnectSession`. Sekarang ia mengisi data ke dalam *memory map* `this.sessions` dan memanggil `startSession`. Ini dengan aman memulai koneksi atau memicu pembentukan QR baru tanpa ada kredensial yang terbuang.
+
+---
+
 ## [2026-03-20] — Per-Session API Key Isolation Fix
 
 ### Fixed

@@ -120,6 +120,7 @@ export class ConnectionManager {
     this.db = db;
     this.whatsapp = new Whatsapp({
       adapter: new SQLiteAdapter(),
+      autoLoad: false, // MATIKAN AUTOLOAD agar kita mengendalikan inisialisasi session dan event listener siap
       onConnecting: (sessionId: string) => {
         logger.info(`[Session ${sessionId}] connecting`);
         const conn = this.sessions.get(sessionId);
@@ -449,24 +450,35 @@ export class ConnectionManager {
     try {
       logger.info(`[Session ${sessionId}] Restoring session...`);
 
-      // Update last restore time
-      const conn = this.sessions.get(sessionId);
-      if (conn) {
+      // Ensure session is tracked in memory
+      let conn = this.sessions.get(sessionId);
+      if (!conn) {
+        // Load dari DB
+        const dbSession = await this.db.getSession(sessionId);
+        if (dbSession) {
+          conn = {
+            id: sessionId,
+            session: dbSession,
+            qrCode: null,
+            status: 'connecting',
+            qrUpdateTime: null,
+            token: dbSession.token || this.generateToken()
+          };
+          this.sessions.set(sessionId, conn);
+        } else {
+          // Fallback if not in DB
+          await this.createSession(sessionName, userId, sessionId);
+          return;
+        }
+      } else {
         (conn as any).lastRestoreTime = Date.now();
       }
 
-      // Check if session already exists in wa-multi-session
-      const existingSession = await this.whatsapp.getSessionById(sessionId);
+      // Mulai session koneksi. wa-multi-session akan otomatis
+      // me-load credentials dari SQLite jika sudah ada.
+      // DILARANG MENGGUNAKAN reconnectSession KARENA AKAN HAPUS CREDENTIALS!
+      await this.startSession(sessionId);
 
-      if (existingSession) {
-        // Session exists, just need to reconnect
-        logger.info(`[Session ${sessionId}] Session exists in wa-multi-session, reconnecting...`);
-        await this.reconnectSession(sessionId);
-      } else {
-        // Create new session
-        logger.info(`[Session ${sessionId}] Creating new session connection...`);
-        await this.createSession(sessionName, userId, sessionId);
-      }
     } catch (error: any) {
       logger.error(`[Session ${sessionId}] Failed to restore session:`, error.message);
       throw error;
