@@ -78,10 +78,35 @@ export function setupRoutes(
 
   // ========== SESSIONS ==========
   router.get('/sessions', async (req, res) => {
-    // Both 'admin' and 'superadmin' hanya melihat session milik mereka sendiri.
-    // Exception: global API key menggunakan id='system' — tetap lihat semua (backward compat).
     const userRole = (req as any).user?.role;
     const currentUserId = (req as any).user?.id;
+    const sessionApiKeyId = (req as any).sessionApiKeyId;
+
+    // Prevent browser caching so status & QR updates are always fresh
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
+    // FIX: Role 'session' (per-session API key) hanya boleh melihat 1 session miliknya
+    if (userRole === 'session' && sessionApiKeyId) {
+      const session = await db.getSession(sessionApiKeyId);
+      if (!session) return res.json([]);
+      const conn = connectionManager.getSession(sessionApiKeyId);
+      const contactsCount = db.getContactsCount ? db.getContactsCount(sessionApiKeyId) : 0;
+      return res.json([{
+        ...session,
+        token: conn?.token || null,
+        apiKey: session.apiKey || null,
+        browser: 'WhatsApp Web',
+        contactsCount,
+        contactsSyncStatus: conn?.contactsSyncStatus || 'idle',
+        contactsSyncProgress: conn?.contactsSyncProgress || 0,
+        contactsSyncTotal: conn?.contactsSyncTotal || 0
+      }]);
+    }
+
+    // Admin/superadmin: hanya melihat session milik mereka sendiri.
+    // Exception: global API key (id='system') — lihat semua (backward compat).
     const isScopedUser = (userRole === 'admin' || userRole === 'superadmin') && currentUserId !== 'system';
     const userId = isScopedUser ? currentUserId : undefined;
     
@@ -99,10 +124,6 @@ export function setupRoutes(
         contactsSyncTotal: conn?.contactsSyncTotal || 0
       };
     });
-    // Prevent browser caching so status & QR updates are always fresh
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.set('Pragma', 'no-cache');
-    res.set('Expires', '0');
     res.json(sessions);
   });
 
@@ -253,11 +274,19 @@ export function setupRoutes(
       const { to, type, message, mediaUrl, caption, useSpintax, delay, scheduledAt: scheduledAtRaw, contactName, contactPhone } = req.body;
       // Allow sessionId from body OR from per-session API key context
       const sessionId = req.body.sessionId || (req as any).sessionApiKeyId;
+      const scopedSessionId = (req as any).sessionApiKeyId;
 
       logger.info(`[API] Received send message request: sessionId=${sessionId}, to=${to}, type=${type}`);
 
       if (!sessionId) {
         return res.status(400).json({ error: 'sessionId is required' });
+      }
+
+      // FIX: Per-session API key hanya boleh kirim pesan ke session MILIKNYA
+      // Blok akses cross-session (e.g., API key cibubur tidak boleh pakai session superadmin)
+      if (scopedSessionId && sessionId !== scopedSessionId) {
+        logger.warn(`[API] Cross-session access blocked: apiKey scoped to ${scopedSessionId}, tried to use ${sessionId}`);
+        return res.status(403).json({ error: 'Forbidden: API key ini hanya dapat digunakan untuk session yang terdaftar' });
       }
 
       // Cek session valid
@@ -568,6 +597,13 @@ export function setupRoutes(
   router.post('/messages/bulk', validate(bulkMessageSchema), async (req, res) => {
     try {
       const { sessionId, recipients, message, useSpintax, delay } = req.body;
+      const scopedSessionId = (req as any).sessionApiKeyId;
+
+      // FIX: Per-session API key hanya boleh kirim pesan ke session MILIKNYA
+      if (scopedSessionId && sessionId !== scopedSessionId) {
+        logger.warn(`[API] Bulk: Cross-session access blocked: apiKey scoped to ${scopedSessionId}, tried to use ${sessionId}`);
+        return res.status(403).json({ error: 'Forbidden: API key ini hanya dapat digunakan untuk session yang terdaftar' });
+      }
 
       const queuedIds: string[] = [];
 
@@ -600,6 +636,16 @@ export function setupRoutes(
   router.post('/messages/send-auto', validate(sendMessageSchema), async (req, res) => {
     try {
       const { to, type, message, mediaUrl, caption, useSpintax, delay } = req.body;
+      const scopedSessionId = (req as any).sessionApiKeyId;
+
+      // FIX: Per-session API key tidak boleh pakai auto-send (bisa pilih session lain)
+      // Harus gunakan /messages/send dengan sessionId eksplisit
+      if (scopedSessionId) {
+        logger.warn(`[API] Auto-send blocked for per-session API key (session: ${scopedSessionId})`);
+        return res.status(403).json({
+          error: 'Forbidden: Gunakan endpoint /messages/send dengan sessionId eksplisit untuk per-session API key'
+        });
+      }
 
       logger.info(`[API] Auto-send request: to=${to}`);
 

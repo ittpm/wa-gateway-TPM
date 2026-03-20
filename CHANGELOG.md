@@ -9,6 +9,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning 
 
 ---
 
+## [2026-03-20] — Per-Session API Key Isolation Fix
+
+### Fixed
+- **Per-session API key bisa melihat session milik akun lain** (`src/api/routes.ts`)
+  - `GET /sessions` dengan role `session` (per-session API key) sebelumnya mengembalikan **semua session** karena tidak ada penanganan khusus untuk role ini → `userId = undefined` → query tidak difilter.
+  - Fix: Ketika `role === 'session'`, endpoint sekarang hanya return **1 session** milik API key tersebut (di-lookup dari `sessionApiKeyId`).
+
+- **Pesan berhasil terkirim via session lain meskipun session API key disconnected** (`src/api/routes.ts`)
+  - `POST /messages/send`: Jika caller menyertakan `sessionId` session lain (misal: superadmin yang connected) di request body, tidak ada pengecekan apakah API key punya izin akses ke session tersebut. Akibatnya pesan terkirim melewati session yang salah.
+  - Fix: Tambah validasi cross-session — jika `sessionId` di body ≠ `sessionApiKeyId`, request langsung ditolak dengan **HTTP 403 Forbidden**.
+
+- **Cross-session access di bulk send** (`src/api/routes.ts`)
+  - `POST /messages/bulk`: Masalah yang sama dengan `/messages/send`. Tambah validasi cross-session yang sama.
+
+- **Auto-send memilih sembarang session** (`src/api/routes.ts`)
+  - `POST /messages/send-auto`: Endpoint ini memilih session terbaik via round-robin dari semua session aktif. Hal ini tidak aman untuk per-session API key karena bisa memilih session milik akun lain.
+  - Fix: Per-session API key sekarang mendapat **HTTP 403 Forbidden** saat memanggil endpoint ini. Gunakan `/messages/send` dengan `sessionId` eksplisit.
+
+---
+
 ## [2026-03-20] — QR Code Browser Cache Fix
 
 ### Fixed
