@@ -37,9 +37,43 @@ export function setupRoutes(
   const router = Router();
   const sessionPool = new SessionPool(db, connectionManager);
 
+  // ======================================================
+  // ENDPOINT PUBLIK: Tidak memerlukan auth (UUID sebagai secret)
+  // HARUS didefinisikan SEBELUM router.use(createAuthMiddleware)
+  // ======================================================
+
+  // Serve QR code langsung sebagai gambar PNG
+  // Browser bisa fetch ini sebagai src <img> tanpa perlu auth header
+  router.get('/sessions/:id/qr-image', (req, res) => {
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(req.params.id)) {
+      return res.status(400).end();
+    }
+
+    const conn = connectionManager.getSession(req.params.id);
+    if (!conn?.qrCode) {
+      return res.status(404).end();
+    }
+
+    const parts = conn.qrCode.split(',');
+    if (parts.length < 2) {
+      return res.status(500).end();
+    }
+
+    try {
+      const imgBuffer = Buffer.from(parts[1], 'base64');
+      res.set('Content-Type', 'image/png');
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
+      res.send(imgBuffer);
+    } catch (e) {
+      res.status(500).end();
+    }
+  });
+
   // Apply auth middleware with db for per-session API key support
   router.use(createAuthMiddleware(db));
-
 
 
   // ========== SESSIONS ==========
@@ -65,6 +99,10 @@ export function setupRoutes(
         contactsSyncTotal: conn?.contactsSyncTotal || 0
       };
     });
+    // Prevent browser caching so status & QR updates are always fresh
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     res.json(sessions);
   });
 
@@ -117,6 +155,12 @@ export function setupRoutes(
     }
 
     const hasQR = conn.qrCode && conn.qrCode.startsWith('data:image');
+
+    // QR code harus selalu fresh — jangan izinkan browser meng-cache response ini
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
 
     res.json({
       qrCode: conn.qrCode,

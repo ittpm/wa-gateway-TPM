@@ -9,6 +9,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning 
 
 ---
 
+## [2026-03-20] — QR Code Browser Cache Fix
+
+### Fixed
+- **QR code tidak muncul setelah session terputus** saat menggunakan browser yang sama (bukan fresh browser)
+  - **Root cause**: Browser meng-cache response JSON `GET /sessions/:id/qr` sehingga mengembalikan data lama (qrCode: null) ketika QR baru sudah di-generate di backend.
+  - **Fix 1 — Backend** (`src/api/routes.ts`): Tambah header `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate` + `Pragma: no-cache` + `Expires: 0` pada endpoint `GET /sessions` dan `GET /sessions/:id/qr`.
+  - **Fix 2 — Backend** (`src/api/routes.ts`): Tambah endpoint baru `GET /sessions/:id/qr-image` (public, sebelum auth middleware) yang serve QR code langsung sebagai **PNG bytes**, bukan sebagai data URL dalam JSON. Ini jauh lebih reliable untuk rendering di browser.
+  - **Fix 3 — Frontend** (`frontend/src/pages/Sessions.jsx`): `fetchQR` sekarang menggunakan flag `hasQR` dari response JSON, lalu membangun URL gambar `/api/v1/sessions/:id/qr-image?t=<timestamp>`. Timestamp di URL memastikan browser selalu fetch QR terbaru.
+  - **Fix 4 — Frontend** (`frontend/src/components/QRModal.jsx`): `<img>` menggunakan URL PNG (bukan data URL). `key={qrCode}` memaksa React re-mount img setiap URL baru (tiap polling). Jika gambar gagal load (imgError), loading spinner muncul dan akan pulih otomatis saat URL baru tiba.
+  - **Fix 5 — Backend** (`src/index.ts`): Tambah `Cache-Control` dan `Pragma` ke CORS `allowedHeaders`.
+  - **Fix 6 — Frontend** (`frontend/src/pages/Sessions.jsx`): `reconnectSession` sekarang menyertakan `token` dan `apiKey` dari session yang ada ke QR modal.
+
+---
+
 ## [2026-03-20] — Session Isolation & Contact Routing Fix
 
 ### Fixed

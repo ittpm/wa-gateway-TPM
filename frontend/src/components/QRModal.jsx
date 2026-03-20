@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { X, RefreshCw, CheckCircle, Smartphone, Clock } from 'lucide-react'
+import { X, RefreshCw, CheckCircle, Clock } from 'lucide-react'
 
 function QRModal({ qrCode, token, apiKey, onClose, status, updatedAt }) {
   const [countdown, setCountdown] = useState(30)
@@ -7,36 +7,36 @@ function QRModal({ qrCode, token, apiKey, onClose, status, updatedAt }) {
   const [dots, setDots] = useState('')
   const [showRetry, setShowRetry] = useState(false)
   const [qrAge, setQrAge] = useState(0)
+  const [imgError, setImgError] = useState(false)
 
+  // Animate dots
   useEffect(() => {
-    // Animate dots
     const dotsInterval = setInterval(() => {
       setDots(prev => prev.length >= 3 ? '' : prev + '.')
     }, 500)
-
     return () => clearInterval(dotsInterval)
   }, [])
 
-  // Reset countdown when QR code appears
+  // Reset state saat QR baru datang (qrCode berupa URL gambar yang selalu unik)
   useEffect(() => {
-    if (qrCode && qrCode.startsWith('data:image')) {
+    if (qrCode) {
       setShowRetry(false)
       setCountdown(30)
+      setImgError(false)
     }
   }, [qrCode])
 
-  // Update QR age timer
+  // Hitung umur QR
   useEffect(() => {
-    if (!qrCode || !updatedAt) return;
-    
+    if (!qrCode || !updatedAt) return
     const interval = setInterval(() => {
-      const age = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 1000);
-      setQrAge(age);
-    }, 1000);
-
-    return () => clearInterval(interval);
+      const age = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 1000)
+      setQrAge(age)
+    }, 1000)
+    return () => clearInterval(interval)
   }, [qrCode, updatedAt])
 
+  // Countdown saat QR belum muncul
   useEffect(() => {
     if (countdown > 0 && !connected && !qrCode) {
       const timer = setTimeout(() => setCountdown(countdown - 1), 1000)
@@ -46,13 +46,11 @@ function QRModal({ qrCode, token, apiKey, onClose, status, updatedAt }) {
     }
   }, [countdown, connected, qrCode])
 
-  // Auto-close when connected via status prop
+  // Auto-close saat connected
   useEffect(() => {
     if (status === 'connected') {
       setConnected(true)
-      setTimeout(() => {
-        onClose()
-      }, 2000)
+      setTimeout(() => onClose(), 2000)
     }
   }, [status, onClose])
 
@@ -69,6 +67,10 @@ function QRModal({ qrCode, token, apiKey, onClose, status, updatedAt }) {
     setShowRetry(false)
     window.location.reload()
   }
+
+  // qrCode sekarang berupa URL gambar PNG (bukan data URL)
+  // contoh: /api/v1/sessions/<uuid>/qr-image?t=<timestamp>
+  const hasQR = !!(qrCode && !imgError)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
@@ -90,22 +92,19 @@ function QRModal({ qrCode, token, apiKey, onClose, status, updatedAt }) {
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Berhasil Terhubung!</h3>
             <p className="text-gray-500">WhatsApp Anda sudah terhubung ke gateway.</p>
-            <button
-              onClick={onClose}
-              className="btn-primary mt-6"
-            >
-              Tutup
-            </button>
+            <button onClick={onClose} className="btn-primary mt-6">Tutup</button>
           </div>
         ) : (
           <>
             <div className="qr-container mx-auto mb-6 flex items-center justify-center bg-gray-50 min-h-[256px] rounded-lg">
-              {qrCode && qrCode.startsWith('data:image') ? (
+              {hasQR ? (
                 <div className="text-center">
                   <img
+                    key={qrCode}
                     src={qrCode}
-                    alt="QR Code"
+                    alt="QR Code WhatsApp"
                     className="w-64 h-64"
+                    onError={() => setImgError(true)}
                   />
                   <p className="text-xs text-gray-400 mt-2">
                     Scan sebelum QR expired (refresh otomatis)
@@ -164,10 +163,7 @@ function QRModal({ qrCode, token, apiKey, onClose, status, updatedAt }) {
                   <p className="text-sm text-amber-700 mb-2">
                     QR Code tidak muncul? Coba refresh halaman.
                   </p>
-                  <button
-                    onClick={handleRetry}
-                    className="btn-primary text-sm"
-                  >
+                  <button onClick={handleRetry} className="btn-primary text-sm">
                     <RefreshCw className="w-4 h-4 mr-1" />
                     Refresh
                   </button>
@@ -195,13 +191,11 @@ function QRModal({ qrCode, token, apiKey, onClose, status, updatedAt }) {
 
               <div className="text-xs text-gray-400 space-y-1">
                 <p>QR Code akan refresh otomatis setiap 20-30 detik</p>
-                {qrCode && qrCode.startsWith('data:image') && (
+                {qrCode && updatedAt && (
                   <p className="flex items-center justify-center gap-1">
                     <Clock className="w-3 h-3" />
                     QR diperbarui: {qrAge} detik yang lalu
-                    {qrAge > 20 && (
-                      <span className="text-amber-500"> (akan refresh segera)</span>
-                    )}
+                    {qrAge > 20 && <span className="text-amber-500"> (akan refresh segera)</span>}
                   </p>
                 )}
               </div>

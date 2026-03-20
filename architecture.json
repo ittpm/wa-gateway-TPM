@@ -128,6 +128,8 @@
 
   "session_lifecycle": {
     "create": "POST /api/v1/sessions → ConnectionManager.createSession() → db.createSession() → whatsapp.startSession() → QR code generated → polling via GET /sessions/:id/qr",
+    "qr_polling": "GET /sessions/:id/qr (JSON, butuh auth) → returns { hasQR, status, updatedAt }. Frontend compute URL: GET /sessions/:id/qr-image?t=<timestamp> (PNG, no auth needed).",
+    "qr_image_endpoint": "GET /sessions/:id/qr-image — endpoint publik (sebelum auth middleware). Serve raw PNG bytes dari conn.qrCode data URL. UUID sebagai security. QR expire ~20 detik.",
     "connect": "User scan QR → Baileys onConnected → status='connected' → per-session event listeners registered",
     "event_listeners_registered_per_session": [
       "contacts.upsert — batch save contacts dari WhatsApp sync",
@@ -150,6 +152,12 @@
   },
 
   "known_bugs_fixed": [
+    {
+      "date": "2026-03-20",
+      "bug": "QR code tidak muncul di browser yang sama setelah session terputus; gambar QR rusak (broken image)",
+      "root_cause": "(1) Browser meng-cache response GET /sessions/:id/qr. (2) Browser tidak bisa reliably render data URI base64 PNG besar dari JSON response.",
+      "fix": "routes.ts: tambah no-cache headers pada GET /sessions dan /sessions/:id/qr. Tambah endpoint /sessions/:id/qr-image yang serve PNG bytes langsung (sebelum auth middleware). Sessions.jsx: fetchQR pakai hasQR flag + compute image URL. QRModal.jsx: img src = URL PNG dengan key=qrCode untuk auto re-mount tiap polling."
+    },
     {
       "date": "2026-03-20",
       "bug": "GET /sessions mengembalikan session semua akun untuk superadmin",

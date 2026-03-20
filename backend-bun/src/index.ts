@@ -55,7 +55,7 @@ const isDev = process.env.NODE_ENV === 'development';
 app.use(cors({
   origin: isDev ? true : corsOrigins,
   methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Session-Token'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Session-Token', 'Cache-Control', 'Pragma'],
   credentials: true,
   maxAge: 600 // 10 minutes
 }));

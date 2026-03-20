@@ -93,21 +93,29 @@ function Sessions() {
     // Clear existing interval
     if (qrIntervalRef.current) clearInterval(qrIntervalRef.current)
 
-    // Fetch QR segera (tidak reset qrCode supaya tidak hilang)
+    const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'
+
     const fetchQR = async () => {
       try {
         const response = await api.get(`/sessions/${sessionId}/qr?t=${Date.now()}`)
 
-        if (response.data.qrCode && response.data.qrCode.startsWith('data:image')) {
+        if (response.data.hasQR) {
+          // Gunakan URL langsung ke endpoint gambar PNG — jauh lebih reliable dari data URL
+          // Timestamp di URL memastikan browser selalu fetch QR terbaru (tidak di-cache)
+          const updatedMs = response.data.updatedAt
+            ? new Date(response.data.updatedAt).getTime()
+            : Date.now()
+          const qrImageUrl = `${API_BASE}/sessions/${sessionId}/qr-image?t=${updatedMs}`
+
           setShowQR(prev => prev ? {
             ...prev,
-            qrCode: response.data.qrCode,
+            qrCode: qrImageUrl,
             status: response.data.status,
             updatedAt: response.data.updatedAt
           } : null)
         } else if (response.data.status) {
-          // Update status even if QR is not ready yet
-          setShowQR(prev => prev ? { ...prev, status: response.data.status } : null)
+          // QR belum siap — update status saja, clear qrCode
+          setShowQR(prev => prev ? { ...prev, status: response.data.status, qrCode: null } : null)
         }
 
         // Check if connected
@@ -148,8 +156,15 @@ function Sessions() {
       await api.post(`/sessions/${id}/reconnect`)
       toast.success('Menghubungkan ulang...')
 
-      // Show QR modal
-      setShowQR({ sessionId: id, qrCode: null })
+      // Ambil data session saat ini agar modal punya token & apiKey lengkap
+      const session = sessions.find(s => s.id === id)
+      setShowQR({
+        sessionId: id,
+        qrCode: null,
+        token: session?.token || null,
+        apiKey: session?.apiKey || null,
+        sessionName: session?.name || ''
+      })
       startQRRefresh(id)
 
       fetchSessions()
