@@ -1508,21 +1508,42 @@ export class ConnectionManager {
           }
         } else {
           // Handle URL media
-          logger.info(`[Connection] Using URL media: ${mediaSource}`);
-          if (mediaType === 'image') {
-            mediaContent.image = { url: mediaSource };
-          } else if (mediaType === 'video') {
-            mediaContent.video = { url: mediaSource };
-          } else if (mediaType === 'document') {
-            mediaContent.document = { url: mediaSource };
-            mediaContent.mimetype = options.mimetype || 'application/pdf';
-            mediaContent.fileName = options.fileName || 'document.pdf';
-          } else if (mediaType === 'sticker') {
-            mediaContent.sticker = { url: mediaSource };
-          } else if (mediaType === 'audio') {
-            mediaContent.audio = { url: mediaSource };
-            mediaContent.mimetype = 'audio/mp4';
-            mediaContent.ptt = options.ptt || false;
+          logger.info(`[Connection] Fetching URL media: ${mediaSource}`);
+          try {
+            const response = await fetch(mediaSource);
+            if (!response.ok) {
+              throw new Error(`HTTP Error ${response.status}: ${response.statusText}`);
+            }
+            const buffer = Buffer.from(await response.arrayBuffer());
+
+            if (mediaType === 'image') {
+              mediaContent.image = buffer;
+            } else if (mediaType === 'video') {
+              mediaContent.video = buffer;
+            } else if (mediaType === 'document') {
+              mediaContent.document = buffer;
+              
+              // Extract filename from Content-Disposition if available (sangat berguna untuk Google Drive)
+              const contentDisposition = response.headers.get('content-disposition');
+              let filename = options.fileName || 'document.file';
+              if (!options.fileName && contentDisposition) {
+                const match = contentDisposition.match(/filename="?([^";]+)"?/);
+                if (match) filename = match[1];
+              }
+              
+              mediaContent.mimetype = options.mimetype || response.headers.get('content-type') || 'application/pdf';
+              mediaContent.fileName = filename;
+            } else if (mediaType === 'sticker') {
+              mediaContent.sticker = buffer;
+            } else if (mediaType === 'audio') {
+              mediaContent.audio = buffer;
+              mediaContent.mimetype = 'audio/mp4';
+              mediaContent.ptt = options.ptt || false;
+            }
+            logger.info(`[Connection] URL media fetched successfully (${buffer.length} bytes)`);
+          } catch (fetchErr: any) {
+            logger.error(`[Connection] Error fetching URL media ${mediaSource}:`, fetchErr);
+            throw new Error(`Gagal mendownload media dari URL: ${fetchErr.message}`);
           }
         }
 
