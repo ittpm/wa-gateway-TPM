@@ -35,9 +35,19 @@ export const bulkMessageSchema = z.object({
     recipients: z.array(z.string().regex(/^62\d{9,}$/, 'Invalid phone number format'))
         .min(1, 'At least one recipient is required')
         .max(50, 'Maximum 50 recipients per bulk request'),
-    message: z.string().min(1, 'Message content is required'),
+    message: z.string().optional(),
+    type: z.enum(['text', 'image', 'video', 'document', 'audio']).default('text'),
+    mediaUrl: z.string().optional(),
+    caption: z.string().optional(),
     useSpintax: z.boolean().optional(),
     delay: z.boolean().optional()
+}).refine(data => {
+    if (data.type === 'text' && !data.message) return false;
+    if (data.type !== 'text' && !data.mediaUrl) return false;
+    return true;
+}, {
+    message: 'message wajib untuk teks, mediaUrl wajib untuk tipe media',
+    path: ['message', 'mediaUrl']
 });
 
 export const templateSchema = z.object({

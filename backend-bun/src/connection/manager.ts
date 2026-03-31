@@ -1457,29 +1457,39 @@ export class ConnectionManager {
         const mediaType = options.type || 'image';
         const mediaContent: any = {};
 
+        // Resolve Google Drive URL ke direct download link
+        let mediaSource = options.media;
+        const gdrivePattern = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
+        const gdriveMatch = mediaSource.match(gdrivePattern);
+        if (gdriveMatch) {
+          const fileId = gdriveMatch[1];
+          mediaSource = `https://drive.google.com/uc?export=download&id=${fileId}`;
+          logger.info(`[Connection] Google Drive URL resolved: ${options.media} -> ${mediaSource}`);
+        }
+
         // Check if media is local file path or URL
-        const isLocalFile = !options.media.startsWith('http://') &&
-          !options.media.startsWith('https://') &&
-          !options.media.startsWith('data:');
+        const isLocalFile = !mediaSource.startsWith('http://') &&
+          !mediaSource.startsWith('https://') &&
+          !mediaSource.startsWith('data:');
 
         if (isLocalFile) {
           // Read local file with timeout protection
-          logger.info(`[Connection] Reading local file: ${options.media}`);
+          logger.info(`[Connection] Reading local file: ${mediaSource}`);
 
           // Check if file exists first
-          if (!existsSync(options.media)) {
-            throw new Error(`Media file not found: ${options.media}`);
+          if (!existsSync(mediaSource)) {
+            throw new Error(`Media file not found: ${mediaSource}`);
           }
 
           // Read file with 10 second timeout
           const fileBuffer = await Promise.race([
-            readFile(options.media),
+            readFile(mediaSource),
             new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error('File read timeout after 10s')), 10000)
             )
           ]);
 
-          logger.info(`[Connection] File read complete: ${options.media} (${fileBuffer.length} bytes)`);
+          logger.info(`[Connection] File read complete: ${mediaSource} (${fileBuffer.length} bytes)`);
 
           if (mediaType === 'image') {
             mediaContent.image = fileBuffer;
@@ -1488,7 +1498,7 @@ export class ConnectionManager {
           } else if (mediaType === 'document') {
             mediaContent.document = fileBuffer;
             mediaContent.mimetype = options.mimetype || 'application/octet-stream';
-            mediaContent.fileName = options.fileName || basename(options.media);
+            mediaContent.fileName = options.fileName || basename(mediaSource);
           } else if (mediaType === 'sticker') {
             mediaContent.sticker = fileBuffer;
           } else if (mediaType === 'audio') {
@@ -1498,19 +1508,19 @@ export class ConnectionManager {
           }
         } else {
           // Handle URL media
-          logger.info(`[Connection] Using URL media: ${options.media}`);
+          logger.info(`[Connection] Using URL media: ${mediaSource}`);
           if (mediaType === 'image') {
-            mediaContent.image = { url: options.media };
+            mediaContent.image = { url: mediaSource };
           } else if (mediaType === 'video') {
-            mediaContent.video = { url: options.media };
+            mediaContent.video = { url: mediaSource };
           } else if (mediaType === 'document') {
-            mediaContent.document = { url: options.media };
+            mediaContent.document = { url: mediaSource };
             mediaContent.mimetype = options.mimetype || 'application/pdf';
             mediaContent.fileName = options.fileName || 'document.pdf';
           } else if (mediaType === 'sticker') {
-            mediaContent.sticker = { url: options.media };
+            mediaContent.sticker = { url: mediaSource };
           } else if (mediaType === 'audio') {
-            mediaContent.audio = { url: options.media };
+            mediaContent.audio = { url: mediaSource };
             mediaContent.mimetype = 'audio/mp4';
             mediaContent.ptt = options.ptt || false;
           }

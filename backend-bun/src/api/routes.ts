@@ -10,7 +10,9 @@ import { writeFile } from 'fs/promises';
 import { join } from 'path';
 
 import { validate, sendMessageSchema, bulkMessageSchema, webhookSchema, sessionSchema, templateSchema } from '../middleware/validation.js';
-import { webhookLimiter } from '../middleware/ratelimit.js';
+import { webhookLimiter, messageSendLimiter } from '../middleware/ratelimit.js';
+import { idempotencyMiddleware } from '../middleware/idempotency.js';
+import { verifyWebhookSignature } from '../webhook/signature.js';
 
 // Store QR refresh intervals
 // Store QR refresh intervals
@@ -26,6 +28,7 @@ process.on('SIGINT', () => {
 });
 
 import { createAuthMiddleware } from '../middleware/auth.js';
+import { requireRole } from '../middleware/authz.js';
 
 export function setupRoutes(
   app: Express,
@@ -74,6 +77,95 @@ export function setupRoutes(
 
   // Apply auth middleware with db for per-session API key support
   router.use(createAuthMiddleware(db));
+
+  // ========== OPS AUDIT TRAIL (Fase 5) ==========
+  const safePayload = (value: any) => {
+    if (!value || typeof value !== 'object') return value;
+    const cloned = JSON.parse(JSON.stringify(value));
+    const redactedKeys = ['password', 'token', 'apiKey', 'x-api-key', 'authorization', 'secret'];
+    for (const key of Object.keys(cloned)) {
+      if (redactedKeys.includes(key.toLowerCase())) cloned[key] = '***';
+    }
+    return cloned;
+  };
+
+  router.use((req, res, next) => {
+    const auditStart = Date.now();
+    res.on('finish', async () => {
+      try {
+        const shouldAudit = req.path.startsWith('/sessions') || req.path.startsWith('/messages') || req.path.startsWith('/webhooks') || req.path.startsWith('/ops');
+        if (!shouldAudit) return;
+
+        const body = (req as any).body;
+        const sessionId = body?.sessionId || req.params?.id || (req as any).sessionApiKeyId;
+
+        await (db as any).createAuditLog?.({
+          userId: (req as any).user?.id,
+          actorRole: (req as any).user?.role,
+          apiKeyScope: (req as any).sessionApiKeyId ? 'session' : 'global',
+          sessionId,
+          action: `${req.method} ${req.path}`,
+          endpoint: req.path,
+          method: req.method,
+          statusCode: res.statusCode,
+          requestPayload: safePayload(body),
+          responsePayload: { durationMs: Date.now() - auditStart },
+        });
+      } catch (e) {
+        logger.warn('[OPS] Failed writing audit log:', e);
+      }
+    });
+    next();
+  });
+
+  const resolveQuotaUserId = async (req: any): Promise<string> => {
+    if (req.user?.id && req.user.id !== 'system' && req.user.role !== 'session') return req.user.id;
+    if (req.sessionApiKeyId) {
+      const session = await db.getSession(req.sessionApiKeyId);
+      return session?.userId || 'default';
+    }
+    return 'default';
+  };
+
+  const enforcePlanQuota = async (req: any, res: any, next: any) => {
+    try {
+      const userId = await resolveQuotaUserId(req);
+      const plan = await (db as any).getUserPlan?.(userId);
+      if (!plan) {
+        return res.status(500).json({
+          error: 'Plan configuration missing',
+          code: 'PLAN_NOT_CONFIGURED'
+        });
+      }
+
+      const used = await (db as any).getTodayMessageUsage?.(userId) || 0;
+      if (used >= plan.limits.dailyMessages) {
+        return res.status(429).json({
+          error: 'Daily message quota exceeded',
+          code: 'PLAN_DAILY_QUOTA_EXCEEDED',
+          plan: plan.code,
+          limits: {
+            dailyMessages: plan.limits.dailyMessages,
+            usedToday: used,
+            remaining: 0,
+          },
+          upgradeHint: 'Upgrade paket untuk menaikkan kuota harian.'
+        });
+      }
+
+      req.planUsage = {
+        planCode: plan.code,
+        usedToday: used,
+        dailyLimit: plan.limits.dailyMessages,
+        remaining: Math.max(0, plan.limits.dailyMessages - used)
+      };
+
+      next();
+    } catch (error) {
+      logger.error('[PlanQuota] Failed to enforce plan quota:', error);
+      return res.status(500).json({ error: 'Failed to evaluate plan quota' });
+    }
+  };
 
 
   // ========== SESSIONS ==========
@@ -269,7 +361,7 @@ export function setupRoutes(
   });
 
   // ========== MESSAGES ==========
-  router.post('/messages/send', validate(sendMessageSchema), async (req, res) => {
+  router.post('/messages/send', messageSendLimiter, idempotencyMiddleware, enforcePlanQuota, validate(sendMessageSchema), async (req, res) => {
     try {
       const { to, type, message, mediaUrl, caption, useSpintax, delay, scheduledAt: scheduledAtRaw, contactName, contactPhone } = req.body;
       // Allow sessionId from body OR from per-session API key context
@@ -342,7 +434,7 @@ export function setupRoutes(
 
   // ========== SEND MEDIA/FILE UPLOAD ==========
   // Send message with file upload (media/image/document)
-  router.post('/messages/send-media', async (req, res) => {
+  router.post('/messages/send-media', messageSendLimiter, idempotencyMiddleware, enforcePlanQuota, async (req, res) => {
     try {
       // Parse multipart form data
       const contentType = req.headers['content-type'] || '';
@@ -372,6 +464,11 @@ export function setupRoutes(
 
       if (!sessionId || !to) {
         return res.status(400).json({ error: 'sessionId and to are required' });
+      }
+
+      const scopedSessionId = (req as any).sessionApiKeyId;
+      if (scopedSessionId && sessionId !== scopedSessionId) {
+        return res.status(403).json({ error: 'Forbidden: API key ini hanya dapat digunakan untuk session yang terdaftar' });
       }
 
       if (!files || files.length === 0) {
@@ -439,7 +536,7 @@ export function setupRoutes(
 
   // ========== UPLOAD FILE FOR SCHEDULED MESSAGE ==========
   // Upload attachment + jadwalkan pengiriman (tanpa perlu URL eksternal)
-  router.post('/messages/upload-scheduled', async (req, res) => {
+  router.post('/messages/upload-scheduled', idempotencyMiddleware, async (req, res) => {
     try {
       const contentType = req.headers['content-type'] || '';
       if (!contentType.includes('multipart/form-data')) {
@@ -594,9 +691,9 @@ export function setupRoutes(
     }
   });
 
-  router.post('/messages/bulk', validate(bulkMessageSchema), async (req, res) => {
+  router.post('/messages/bulk', idempotencyMiddleware, validate(bulkMessageSchema), async (req, res) => {
     try {
-      const { sessionId, recipients, message, useSpintax, delay } = req.body;
+      const { sessionId, recipients, message, type, mediaUrl, caption, useSpintax, delay } = req.body;
       const scopedSessionId = (req as any).sessionApiKeyId;
 
       // FIX: Per-session API key hanya boleh kirim pesan ke session MILIKNYA
@@ -605,14 +702,28 @@ export function setupRoutes(
         return res.status(403).json({ error: 'Forbidden: API key ini hanya dapat digunakan untuk session yang terdaftar' });
       }
 
+      // Resolve Google Drive URL ke direct download link jika perlu
+      let resolvedMediaUrl = mediaUrl;
+      if (mediaUrl) {
+        const gdriveFull = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
+        const gdriveMatch = mediaUrl.match(gdriveFull);
+        if (gdriveMatch) {
+          const fileId = gdriveMatch[1];
+          resolvedMediaUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+          logger.info(`[API] Bulk: Google Drive URL resolved: ${mediaUrl} -> ${resolvedMediaUrl}`);
+        }
+      }
+
       const queuedIds: string[] = [];
 
       for (const recipient of recipients) {
         const msg = await queueManager.addMessage({
           sessionId,
           to: recipient,
-          type: 'text',
-          content: message,
+          type: (type || 'text') as any,
+          content: message || caption || '',
+          mediaUrl: resolvedMediaUrl,
+          caption: caption,
           status: 'pending',
           useSpintax: useSpintax || false,
           delayEnabled: delay !== false
@@ -633,7 +744,7 @@ export function setupRoutes(
 
   // ========== MULTI-DEVICE: AUTO SEND ==========
   // Send message with auto session selection (round-robin)
-  router.post('/messages/send-auto', validate(sendMessageSchema), async (req, res) => {
+  router.post('/messages/send-auto', messageSendLimiter, idempotencyMiddleware, enforcePlanQuota, validate(sendMessageSchema), async (req, res) => {
     try {
       const { to, type, message, mediaUrl, caption, useSpintax, delay } = req.body;
       const scopedSessionId = (req as any).sessionApiKeyId;
@@ -883,7 +994,7 @@ export function setupRoutes(
     }
   });
 
-  router.post('/messages/send-template', async (req, res) => {
+  router.post('/messages/send-template', messageSendLimiter, idempotencyMiddleware, enforcePlanQuota, async (req, res) => {
     try {
       const { templateId, to, variables, sessionId } = req.body;
 
@@ -971,6 +1082,102 @@ export function setupRoutes(
     }
   });
 
+  // ========== OPS PANEL (Fase 5) ==========
+  router.get('/ops/audit-logs', requireRole(['admin', 'superadmin']), async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 100;
+      const isAdmin = (req as any).user?.role === 'admin';
+      const userId = isAdmin ? (req as any).user?.id : undefined;
+      const logs = await (db as any).getAuditLogs?.(limit, userId) || [];
+      res.json(logs);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get('/ops/reports/daily', requireRole(['admin', 'superadmin']), async (req, res) => {
+    try {
+      const date = req.query.date as string | undefined;
+      const isAdmin = (req as any).user?.role === 'admin';
+      const userId = isAdmin ? (req as any).user?.id : undefined;
+      const report = await (db as any).getDailyOpsReport?.(date, userId);
+      res.json(report || { date, summary: { total: 0, queued: 0, sent: 0, delivered: 0, failed: 0 }, bySession: [], byClient: [] });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get('/ops/session-health', requireRole(['admin', 'superadmin']), async (req, res) => {
+    try {
+      const isAdmin = (req as any).user?.role === 'admin';
+      const userId = isAdmin ? (req as any).user?.id : undefined;
+      const health = await (db as any).getSessionHealthSummary?.(userId) || [];
+      res.json(health);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get('/ops/plans', requireRole(['admin', 'superadmin']), async (_req, res) => {
+    try {
+      const plans = await (db as any).getCommercialPlans?.() || [];
+      res.json({ plans });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.put('/ops/plans/assign', requireRole(['superadmin']), async (req, res) => {
+    try {
+      const role = (req as any).user?.role;
+      if (role === 'session') {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const { userId, planCode } = req.body || {};
+      if (!userId || !planCode) {
+        return res.status(400).json({ error: 'userId and planCode are required' });
+      }
+
+      await (db as any).assignUserPlan?.(userId, planCode);
+      const plan = await (db as any).getUserPlan?.(userId);
+      res.json({ message: 'Plan assigned', userId, plan });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get('/ops/plan-usage', async (req, res) => {
+    try {
+      const requestedUser = req.query.userId as string | undefined;
+      const role = (req as any).user?.role;
+      const fallbackUser = await resolveQuotaUserId(req as any);
+      const userId = role === 'session' ? fallbackUser : (requestedUser || fallbackUser);
+
+      const [plan, usedToday] = await Promise.all([
+        (db as any).getUserPlan?.(userId),
+        (db as any).getTodayMessageUsage?.(userId),
+      ]);
+
+      if (!plan) {
+        return res.status(404).json({ error: 'Plan not found for user', userId });
+      }
+
+      res.json({
+        userId,
+        plan,
+        usage: {
+          usedToday,
+          dailyLimit: plan.limits.dailyMessages,
+          remaining: Math.max(0, plan.limits.dailyMessages - usedToday),
+          percentage: plan.limits.dailyMessages > 0 ? Number(((usedToday / plan.limits.dailyMessages) * 100).toFixed(2)) : 0
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ========== AI CHAT ==========
   router.post('/ai/chat', async (req, res) => {
     try {
@@ -1052,7 +1259,7 @@ export function setupRoutes(
     res.json({ message: 'Webhook dihapus' });
   });
 
-  router.get('/webhooks/logs', (req, res) => {
+  router.get('/webhooks/logs', requireRole(['admin', 'superadmin']), (req, res) => {
     const logs = (db as any).getWebhookLogs ? (db as any).getWebhookLogs(100) : [];
     res.json(logs);
   });
@@ -1336,81 +1543,80 @@ export function setupRoutes(
   router.get('/', (req, res) => {
     res.json({
       name: 'WA Gateway API',
-      version: '1.0.0',
       endpoints: {
         sessions: {
-          'GET /api/v1/sessions': 'Daftar semua session',
-          'POST /api/v1/sessions': 'Buat session baru (dapat token)',
-          'GET /api/v1/sessions/:id/qr': 'Ambil QR code (auto-refresh)',
-          'DELETE /api/v1/sessions/:id': 'Hapus session',
-          'POST /api/v1/sessions/:id/reconnect': 'Reconnect session',
-          'POST /api/v1/sessions/:id/logout': 'Logout session',
-          'POST /api/v1/sessions/:id/refresh': 'Refresh status session dari WhatsApp'
+          'GET /api/sessions': 'Daftar semua session',
+          'POST /api/sessions': 'Buat session baru (dapat token)',
+          'GET /api/sessions/:id/qr': 'Ambil QR code (auto-refresh)',
+          'DELETE /api/sessions/:id': 'Hapus session',
+          'POST /api/sessions/:id/reconnect': 'Reconnect session',
+          'POST /api/sessions/:id/logout': 'Logout session',
+          'POST /api/sessions/:id/refresh': 'Refresh status session dari WhatsApp'
         },
         messages: {
-          'POST /api/v1/messages/send': 'Kirim pesan (pilih session manual)',
-          'POST /api/v1/messages/send-auto': 'Kirim pesan (auto pilih session aktif) - RECOMMENDED',
-          'POST /api/v1/messages/send-template': 'Kirim pesan menggunakan template',
-          'POST /api/v1/messages/bulk': 'Kirim bulk message',
-          'POST /api/v1/messages/presence': 'Set typing/presence status'
+          'POST /api/messages/send': 'Kirim pesan (pilih session manual)',
+          'POST /api/messages/send-auto': 'Kirim pesan (auto pilih session aktif) - RECOMMENDED',
+          'POST /api/messages/send-template': 'Kirim pesan menggunakan template',
+          'POST /api/messages/bulk': 'Kirim bulk message',
+          'POST /api/messages/presence': 'Set typing/presence status'
         },
         'multi-device': {
-          'GET /api/v1/pool/status': 'Status session pool (total, aktif, dll)',
-          'GET /api/v1/pool/sessions': 'Daftar semua session aktif',
-          'GET /api/v1/pool/best-session': 'Info session terbaik untuk kirim',
-          'POST /api/v1/pool/validate': 'Validasi session token'
+          'GET /api/pool/status': 'Status session pool (total, aktif, dll)',
+          'GET /api/pool/sessions': 'Daftar semua session aktif',
+          'GET /api/pool/best-session': 'Info session terbaik untuk kirim',
+          'POST /api/pool/validate': 'Validasi session token'
         },
         'auto-reply': {
-          'GET /api/v1/autoreply/rules': 'Daftar auto-reply rules',
-          'POST /api/v1/autoreply/rules': 'Buat auto-reply rule baru',
-          'PUT /api/v1/autoreply/rules/:id': 'Update auto-reply rule',
-          'DELETE /api/v1/autoreply/rules/:id': 'Hapus auto-reply rule',
-          'GET /api/v1/autoreply/settings/:sessionId': 'Ambil auto-reply settings',
-          'POST /api/v1/autoreply/settings': 'Update auto-reply settings'
+          'GET /api/autoreply/rules': 'Daftar auto-reply rules',
+          'POST /api/autoreply/rules': 'Buat auto-reply rule baru',
+          'PUT /api/autoreply/rules/:id': 'Update auto-reply rule',
+          'DELETE /api/autoreply/rules/:id': 'Hapus auto-reply rule',
+          'GET /api/autoreply/settings/:sessionId': 'Ambil auto-reply settings',
+          'POST /api/autoreply/settings': 'Update auto-reply settings'
         },
         templates: {
-          'GET /api/v1/templates': 'Daftar templates',
-          'GET /api/v1/templates/:id': 'Detail template',
-          'POST /api/v1/templates': 'Buat template baru',
-          'PUT /api/v1/templates/:id': 'Update template',
-          'DELETE /api/v1/templates/:id': 'Hapus template',
-          'POST /api/v1/templates/:id/preview': 'Preview template dengan variabel'
+          'GET /api/templates': 'Daftar templates',
+          'GET /api/templates/:id': 'Detail template',
+          'POST /api/templates': 'Buat template baru',
+          'PUT /api/templates/:id': 'Update template',
+          'DELETE /api/templates/:id': 'Hapus template',
+          'POST /api/templates/:id/preview': 'Preview template dengan variabel'
         },
         analytics: {
-          'GET /api/v1/analytics/dashboard': 'Dashboard summary',
-          'GET /api/v1/analytics/messages': 'Statistik pesan',
-          'GET /api/v1/analytics/hourly': 'Aktivitas per jam'
+          'GET /api/analytics/dashboard': 'Dashboard summary',
+          'GET /api/analytics/messages': 'Statistik pesan',
+          'GET /api/analytics/hourly': 'Aktivitas per jam'
         },
         'ai-integration': {
-          'POST /api/v1/ai/chat': 'Chat dengan AI Kimi',
-          'POST /api/v1/ai/generate-reply': 'Generate reply otomatis dengan AI'
+          'POST /api/ai/chat': 'Chat dengan AI Kimi',
+          'POST /api/ai/generate-reply': 'Generate reply otomatis dengan AI'
         },
         queue: {
-          'GET /api/v1/queue': 'Lihat antrean',
-          'GET /api/v1/queue/stats': 'Statistik antrean',
-          'POST /api/v1/queue/pause': 'Jeda antrean',
-          'POST /api/v1/queue/resume': 'Lanjutkan antrean',
-          'POST /api/v1/queue/retry': 'Coba ulang yang gagal'
+          'GET /api/queue': 'Lihat antrean',
+          'GET /api/queue/stats': 'Statistik antrean',
+          'POST /api/queue/pause': 'Jeda antrean',
+          'POST /api/queue/resume': 'Lanjutkan antrean',
+          'POST /api/queue/retry': 'Coba ulang yang gagal'
         },
         webhooks: {
-          'GET /api/v1/webhooks': 'Daftar webhook',
-          'POST /api/v1/webhooks': 'Tambah webhook',
-          'DELETE /api/v1/webhooks/:id': 'Hapus webhook'
+          'GET /api/webhooks': 'Daftar webhook',
+          'POST /api/webhooks': 'Tambah webhook',
+          'DELETE /api/webhooks/:id': 'Hapus webhook'
         },
         contacts: {
-          'GET /api/v1/sessions/:id/contacts': 'Ambil daftar kontak dari session',
-          'POST /api/v1/sessions/:id/contacts/sync': 'Trigger manual sync kontak dari WhatsApp'
+          'GET /api/sessions/:id/contacts': 'Ambil daftar kontak dari session',
+          'POST /api/sessions/:id/contacts/sync': 'Trigger manual sync kontak dari WhatsApp'
         },
         groups: {
-          'GET /api/v1/sessions/:id/groups': 'Ambil daftar grup'
+          'GET /api/sessions/:id/groups': 'Ambil daftar grup'
         },
         antiblock: {
-          'GET /api/v1/antiblock/settings': 'Pengaturan anti-block',
-          'POST /api/v1/antiblock/settings': 'Update pengaturan'
+          'GET /api/antiblock/settings': 'Pengaturan anti-block',
+          'POST /api/antiblock/settings': 'Update pengaturan'
         },
         settings: {
-          'GET /api/v1/settings': 'Ambil semua pengaturan global',
-          'POST /api/v1/settings': 'Update pengaturan global (Superadmin only)'
+          'GET /api/settings': 'Ambil semua pengaturan global',
+          'POST /api/settings': 'Update pengaturan global (Superadmin only)'
         }
       },
       antiBlockFeatures: {
